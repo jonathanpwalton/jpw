@@ -5,7 +5,6 @@
 		"1.1": {
 			"install": [
 				"set -e",
-				"cd /var/cache/jpw",
 				"wget -q --show-progress https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz",
 				"tar xzf spell-1.1.tar.gz",
 				"rm spell-1.1.tar.gz",
@@ -16,10 +15,8 @@
 			],
 			"uninstall": [
 				"set -e",
-				"cd /var/cache/jpw/spell-1.1",
-				"make uninstall",
-				"cd ..",
-				"rm -rf spell-1.1"
+				"cd spell-1.1",
+				"make uninstall"
 			]
 		}
 	}

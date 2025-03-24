@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
-import os, sys, re, json, argparse, subprocess
+import os, sys, re, argparse, subprocess, shutil
 from pathlib import Path
 from urllib.request import urlopen
 from urllib.error import URLError
 from tempfile import TemporaryDirectory
 from sys import stderr, stdout
+from json import loads as parse_json
 
 def require_root():
 	if os.geteuid() != 0:
@@ -24,43 +25,47 @@ parser = argparse.ArgumentParser()
 parser_command = parser.add_subparsers(required=True, dest='command')
 parser_install = parser_command.add_parser('install')
 parser_install.add_argument('packages', type=package_arg, nargs='+')
+parser_uninstall = parser_command.add_parser('uninstall')
+
 args = parser.parse_args()
 
 if args.command == 'install':
 	require_root()
 
 	cache_installed.parent.mkdir(parents=True, exist_ok=True)
-	try: installed = {line[0]: line[1] for line in [line.split() for line in cache_installed.read_text().splitlines()]}
+	try: installed = {line[0]: line[1] for line in [line.split('::') for line in cache_installed.read_text().splitlines()]}
 	except FileNotFoundError: installed = {}
-
-	packages = []
 
 	for argument in args.packages:
 		argument = argument.split('::')
 		version = argument[1] if len(argument) == 2 else 'latest'
 		name = argument[0]
+		json: dict = None
 
 		try:
-			if subprocess.run(['wget', '-q', '--show-progress', f'https://raw.githubusercontent.com/jonathanpwalton/jpw/refs/heads/main/pkg/{name}.json'], cwd='/var/cache/jpw', stdout=stdout, stderr=stderr).returncode != 0:
-				raise URLError
+			with TemporaryDirectory() as tmpdir:
+				if subprocess.run(['wget', '--no-cache', '-q', '--show-progress', f'https://raw.githubusercontent.com/jonathanpwalton/jpw/refs/heads/main/pkg/{name}.json'], cwd=tmpdir, stdout=stdout, stderr=stderr).returncode != 0:
+					raise URLError
 			
-			recipe = Path(f'/var/cache/jpw/{name}.json')
-			packages.append(json.loads(recipe.read_text()))
-			recipe.unlink()
+				json = parse_json(Path(f'{tmpdir}/{name}.json').read_text())
 		except URLError:
 			parser.error(f'no such package {repr(name)}')
 
-		version = packages[-1]['latest'] if version == 'latest' else version
+		version = json['latest'] if version == 'latest' else version
 
-		if version not in packages[-1]['versions']:
+		if version not in json['versions']:
 			parser.error(f'no such version {repr(version)} of package {repr(name)}')
 
-		packages[-1]['version'] = version
+		if name in installed:
+			subprocess.run(['bash', f'/var/cache/jpw/{name}/uninstall'])
+			shutil.rmtree(f'/var/cache/jpw/{name}')
 
-	for package in packages:
-		with open(f'/var/cache/jpw/.install_{name}.sh', 'w') as script:
-			script.writelines('\n'.join(package['versions'][package['version']]['install']))
+		Path(f'/var/cache/jpw/{name}').mkdir(parents=True, exist_ok=True)
+		Path(f'/var/cache/jpw/{name}/install').write_text('\n'.join(json['versions'][version]['install']))
+		Path(f'/var/cache/jpw/{name}/uninstall').write_text('\n'.join(json['versions'][version]['uninstall']))
+		subprocess.run(['bash', f'/var/cache/jpw/{name}/install'])
+		installed[name] = version
 
-		subprocess.run(['cat', f'/var/cache/jpw/.install_{name}.sh'])
+	cache_installed.write_text('\n'.join(f'{name}::{version}' for name, version in installed.items()))
 else:
 	raise NotImplementedError()
