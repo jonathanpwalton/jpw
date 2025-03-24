@@ -1,18 +1,24 @@
 #!/usr/bin/env python
 
-import subprocess
-import argparse
-import re
-import json
+import os, sys, re, json, argparse, subprocess
+from pathlib import Path
 from urllib.request import urlopen
 from urllib.error import URLError
 from tempfile import TemporaryDirectory
 from sys import stderr, stdout
 
+def require_root():
+	if os.geteuid() != 0:
+		print('error: you cannot use this command without root privilege', file=stderr)
+		sys.exit(1)
+	print(os.geteuid())
+
 def package_arg(value: str):
 	if not re.compile(r'[a-zA-Z0-9\-_]+(::(latest|[0-9\.]+))?').fullmatch(value):
 		raise argparse.ArgumentTypeError(f'{repr(value)} is not a valid package specifier')
 	return value
+
+cache_installed = Path('/var/cache/jpw/.installed')
 
 parser = argparse.ArgumentParser()
 parser_command = parser.add_subparsers(required=True, dest='command')
@@ -21,33 +27,40 @@ parser_install.add_argument('packages', type=package_arg, nargs='+')
 args = parser.parse_args()
 
 if args.command == 'install':
-	recipes = []
+	require_root()
 
-	for package in args.packages:
-		package = package.split('::')
-		ver = package[1] if len(package) == 2 else 'latest'
-		pkg = package[0]
+	cache_installed.parent.mkdir(parents=True, exist_ok=True)
+	try: installed = {line[0]: line[1] for line in [line.split() for line in cache_installed.read_text().splitlines()]}
+	except FileNotFoundError: installed = {}
+
+	packages = []
+
+	for argument in args.packages:
+		argument = argument.split('::')
+		version = argument[1] if len(argument) == 2 else 'latest'
+		name = argument[0]
 
 		try:
-			recipes.append(json.loads(urlopen(f'https://raw.githubusercontent.com/jonathanpwalton/jpw/refs/heads/main/pkg/{pkg}.json').read()))
+			if subprocess.run(['wget', '-q', '--show-progress', f'https://raw.githubusercontent.com/jonathanpwalton/jpw/refs/heads/main/pkg/{name}.json'], cwd='/var/cache/jpw', stdout=stdout, stderr=stderr).returncode != 0:
+				raise URLError
+			
+			recipe = Path(f'/var/cache/jpw/{name}.json')
+			packages.append(json.loads(recipe.read_text()))
+			recipe.unlink()
 		except URLError:
-			parser.error(f'no such package {repr(pkg)}')
+			parser.error(f'no such package {repr(name)}')
 
-		ver = recipes[-1]['latest'] if ver == 'latest' else ver
+		version = packages[-1]['latest'] if version == 'latest' else version
 
-		if ver not in recipes[-1]['recipes']:
-			parser.error(f'no such version {repr(ver)} of package {repr(pkg)}')
-		else:
-			recipes[-1]['selected'] = recipes[-1]['recipes'][ver]
+		if version not in packages[-1]['versions']:
+			parser.error(f'no such version {repr(version)} of package {repr(name)}')
 
-	with TemporaryDirectory() as tmpdir:
-		for recipe in recipes:
-			with open(f'{tmpdir}/{recipe['name']}.sh', 'w') as script:
-				script.writelines(map(lambda l: f'{l}\n', recipe['selected']['script']))
+		packages[-1]['version'] = version
 
-		for recipe in recipes:
-			subprocess.run(['chmod', '+x', f'{recipe['name']}.sh'], cwd=tmpdir)
-			subprocess.run(['/usr/bin/env', 'bash', f'./{recipe['name']}.sh'], cwd=tmpdir, stdout=stdout, stderr=stderr)
+	for package in packages:
+		with open(f'/var/cache/jpw/.install_{name}.sh', 'w') as script:
+			script.writelines('\n'.join(package['versions'][package['version']]['install']))
 
+		subprocess.run(['cat', f'/var/cache/jpw/.install_{name}.sh'])
 else:
 	raise NotImplementedError()

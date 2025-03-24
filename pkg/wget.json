@@ -5,11 +5,13 @@
 		"2.2.0": {
 			"script": [
 				"set -e",
-				"wget -q --show-progress http://ftpmirror.gnu.org/wget/wget2-2.2.0.tar.gz",
-				"tar xzf wget2-2.2.0.tar.gz",
+				"sudo mkdir -p /var/cache/jpw",
+				"cd /var/cache/jpw",
+				"sudo wget -q --show-progress http://ftpmirror.gnu.org/wget/wget2-2.2.0.tar.gz",
+				"sudo tar xzf wget2-2.2.0.tar.gz",
 				"cd wget2-2.2.0",
 				"./configure",
-				"make",
+				"sudo make",
 				"sudo make install"
 			]
 		}

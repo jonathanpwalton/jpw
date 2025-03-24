@@ -1,16 +1,25 @@
 {
 	"name": "spell",
 	"latest": "1.1",
-	"recipes": {
+	"versions": {
 		"1.1": {
-			"script": [
+			"install": [
 				"set -e",
+				"cd /var/cache/jpw",
 				"wget -q --show-progress https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz",
 				"tar xzf spell-1.1.tar.gz",
+				"rm spell-1.1.tar.gz",
 				"cd spell-1.1",
 				"./configure",
 				"make",
-				"sudo make install"
+				"make install"
+			],
+			"uninstall": [
+				"set -e",
+				"cd /var/cache/jpw/spell-1.1",
+				"make uninstall",
+				"cd ..",
+				"rm -rf spell-1.1"
 			]
 		}
 	}
