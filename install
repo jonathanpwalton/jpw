@@ -1,0 +1,5 @@
+set -e
+			wget -q --show-progress https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz
+			tar xzf https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz
+			tar
+			
