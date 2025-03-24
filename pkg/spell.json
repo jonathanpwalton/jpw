@@ -1,0 +1,17 @@
+{
+	"name": "spell",
+	"latest": "1.1",
+	"recipes": {
+		"1.1": {
+			"script": [
+				"set -e",
+				"wget -q --show-progress https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz",
+				"tar xzf spell-1.1.tar.gz",
+				"cd spell-1.1",
+				"./configure",
+				"make",
+				"make install"
+			]
+		}
+	}
+}
