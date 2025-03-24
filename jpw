@@ -1,11 +1,53 @@
 #!/usr/bin/env python
 
+import subprocess
 import argparse
+import re
+import json
+from urllib.request import urlopen
+from urllib.error import URLError
+from tempfile import TemporaryDirectory
+from sys import stderr, stdout
+
+def package_arg(value: str):
+	if not re.compile(r'[a-zA-Z0-9\-_]+(::(latest|[0-9\.]+))?').fullmatch(value):
+		raise argparse.ArgumentTypeError(f'{repr(value)} is not a valid package specifier')
+	return value
 
 parser = argparse.ArgumentParser()
 parser_command = parser.add_subparsers(required=True, dest='command')
 parser_install = parser_command.add_parser('install')
-parser_install.add_argument('package', type=str, nargs='*')
+parser_install.add_argument('packages', type=package_arg, nargs='+')
 args = parser.parse_args()
 
-print(args)
+if args.command == 'install':
+	recipes = []
+
+	for package in args.packages:
+		package = package.split('::')
+		ver = package[1] if len(package) == 2 else 'latest'
+		pkg = package[0]
+
+		try:
+			recipes.append(json.loads(urlopen(f'https://raw.githubusercontent.com/jonathanpwalton/jpw/5454464206931db6a52a54b4fb3a4c8e93ddd574/pkg/{pkg}.json').read()))
+		except URLError:
+			parser.error(f'no such package {repr(pkg)}')
+
+		ver = recipes[-1]['latest'] if ver == 'latest' else ver
+
+		if ver not in recipes[-1]['recipes']:
+			parser.error(f'no such version {repr(ver)} of package {repr(pkg)}')
+		else:
+			recipes[-1]['selected'] = recipes[-1]['recipes'][ver]
+
+	with TemporaryDirectory() as tmpdir:
+		for recipe in recipes:
+			with open(f'{tmpdir}/{recipe['name']}.sh', 'w') as script:
+				script.writelines(map(lambda l: f'{l}\n', recipe['selected']['script']))
+
+		for recipe in recipes:
+			subprocess.run(['chmod', '+x', f'{recipe['name']}.sh'], cwd=tmpdir)
+			subprocess.run(['/usr/bin/env', 'bash', f'./{recipe['name']}.sh'], cwd=tmpdir, stdout=stdout, stderr=stderr)
+
+else:
+	raise NotImplementedError()
