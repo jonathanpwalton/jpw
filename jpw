@@ -2,6 +2,7 @@
 
 import os, sys, re, argparse, subprocess, shutil
 from pathlib import Path
+from urllib.parse import urlparse, ParseResult
 from urllib.request import urlopen
 from urllib.error import URLError
 from tempfile import TemporaryDirectory
@@ -12,29 +13,33 @@ def require_root():
 	if os.geteuid() != 0:
 		print('error: you cannot use this command without root privilege', file=stderr)
 		sys.exit(1)
-	print(os.geteuid())
 
 def package_arg(value: str):
 	if not re.compile(r'[a-zA-Z0-9\-_]+(::(latest|[0-9\.]+))?').fullmatch(value):
 		raise argparse.ArgumentTypeError(f'{repr(value)} is not a valid package specifier')
 	return value
 
-cache_installed = Path('/var/cache/jpw/.installed')
+def package_name_arg(value: str):
+	if not re.compile(r'[a-zA-Z0-9\-_]+').fullmatch(value):
+		raise argparse.ArgumentTypeError(f'{repr(value)} is not a valid package name')
+	return value
 
 parser = argparse.ArgumentParser()
 parser_command = parser.add_subparsers(required=True, dest='command')
 parser_install = parser_command.add_parser('install')
 parser_install.add_argument('packages', type=package_arg, nargs='+')
 parser_uninstall = parser_command.add_parser('uninstall')
+parser_uninstall.add_argument('packages', type=package_name_arg, nargs='+')
 
 args = parser.parse_args()
 
+cache_installed = Path('/var/cache/jpw/.installed')
+try: installed = {line[0]: line[1] for line in [line.split('::') for line in cache_installed.read_text().splitlines()]}
+except FileNotFoundError: installed = {}
+
 if args.command == 'install':
 	require_root()
-
 	cache_installed.parent.mkdir(parents=True, exist_ok=True)
-	try: installed = {line[0]: line[1] for line in [line.split('::') for line in cache_installed.read_text().splitlines()]}
-	except FileNotFoundError: installed = {}
 
 	for argument in args.packages:
 		argument = argument.split('::')
@@ -61,11 +66,54 @@ if args.command == 'install':
 			shutil.rmtree(f'/var/cache/jpw/{name}')
 
 		Path(f'/var/cache/jpw/{name}').mkdir(parents=True, exist_ok=True)
-		Path(f'/var/cache/jpw/{name}/install').write_text('\n'.join(json['versions'][version]['install']))
-		Path(f'/var/cache/jpw/{name}/uninstall').write_text('\n'.join(json['versions'][version]['uninstall']))
-		subprocess.run(['bash', f'/var/cache/jpw/{name}/install'])
-		installed[name] = version
 
-	cache_installed.write_text('\n'.join(f'{name}::{version}' for name, version in installed.items()))
+		ref = json['versions'][version]
+		src: ParseResult = urlparse(ref['src'])
+		tar: str = None
+
+		if src.path.endswith('.tar.gz'):
+			tar = f'tar xzf'
+		else:
+			raise NotImplementedError(src.path)
+
+		if ref['miu'] == 'gnu':
+			Path(f'/var/cache/jpw/{name}/install').write_text('\n'.join([
+				'set -e',
+				f'wget -q --show-progress {ref['src']}',
+				f'{tar} {Path(src.path).name}',
+				f'rm -f {Path(src.path).name}',
+				f'cd {ref['dst']}',
+				'./configure',
+				'make',
+				'make install'
+			]))
+
+			Path(f'/var/cache/jpw/{name}/uninstall').write_text('\n'.join([
+				'set -e',
+				f'cd {ref['dst']}',
+				'make uninstall'
+			]))
+		else:
+			raise NotImplementedError(ref['miu'])
+		
+		if subprocess.run(['bash', f'/var/cache/jpw/{name}/install'], cwd=f'/var/cache/jpw/{name}').returncode != 0:
+			parser.error(f'failed to install {repr(name)} version {repr(version)}')
+
+		installed[name] = version
+		cache_installed.write_text('\n'.join(f'{name}::{version}' for name, version in installed.items()))
+elif args.command == 'uninstall':
+	require_root()
+
+	for name in args.packages:
+		if name not in installed:
+			parser.error(f'no such package {repr(name)} installed')
+
+		if subprocess.run(['bash', f'/var/cache/jpw/{name}/uninstall'], cwd=f'/var/cache/jpw/{name}').returncode != 0:
+			parser.error(f'failed to uninstall {repr(name)}')
+
+		shutil.rmtree(f'/var/cache/jpw/{name}')
+
+		installed.pop(name)
+		cache_installed.write_text('\n'.join(f'{name}::{version}' for name, version in installed.items()))
 else:
 	raise NotImplementedError()
