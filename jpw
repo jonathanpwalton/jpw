@@ -29,7 +29,7 @@ if args.command == 'install':
 		pkg = package[0]
 
 		try:
-			recipes.append(json.loads(urlopen(f'https://raw.githubusercontent.com/jonathanpwalton/jpw/5454464206931db6a52a54b4fb3a4c8e93ddd574/pkg/{pkg}.json').read()))
+			recipes.append(json.loads(urlopen(f'https://raw.githubusercontent.com/jonathanpwalton/jpw/refs/heads/main/pkg/{pkg}.json').read()))
 		except URLError:
 			parser.error(f'no such package {repr(pkg)}')
 

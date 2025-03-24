@@ -10,7 +10,7 @@
 				"cd spell-1.1",
 				"./configure",
 				"make",
-				"make install"
+				"sudo make install"
 			]
 		}
 	}

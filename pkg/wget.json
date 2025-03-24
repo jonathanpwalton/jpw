@@ -9,7 +9,8 @@
 				"tar xzf wget2-2.2.0.tar.gz",
 				"cd wget2-2.2.0",
 				"./configure",
-				"make"
+				"make",
+				"sudo make install"
 			]
 		}
 	}
