@@ -1,0 +1,11 @@
+#!/usr/bin/env python
+
+import argparse
+
+parser = argparse.ArgumentParser()
+parser_command = parser.add_subparsers(required=True, dest='command')
+parser_install = parser_command.add_parser('install')
+parser_install.add_argument('package', type=str, nargs='*')
+args = parser.parse_args()
+
+print(args)
