@@ -85,7 +85,8 @@ if args.command == 'install':
 				f'cd {ref['dst']}',
 				'./configure',
 				'make',
-				'make install'
+				'make install',
+				'make clean'
 			]))
 
 			Path(f'/var/cache/jpw/{name}/uninstall').write_text('\n'.join([

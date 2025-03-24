@@ -1,0 +1,19 @@
+#!/usr/bin/bash
+
+if [ "$1" == "name" ]; then
+	echo "wget2"
+elif [ "$1" == "latest" ]; then
+	echo "2.2.0"
+elif [ "$1" == "versions" ]; then
+	if [ -z "$2" ]; then
+		echo "2.2.0"
+	elif [ "$2" == "2.2.0" ]; then
+		if [ "$3" == "src" ]; then
+			echo "https://ftp.gnu.org/gnu/wget/wget2-2.2.0.tar.gz"
+		elif [ "$3" == "dst" ]; then
+			echo "wget2-2.2.0"
+		elif [ "$3" == "build" ]; then
+			echo "gnu"
+		fi
+	fi
+fi

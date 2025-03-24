@@ -1,0 +1,19 @@
+#!/usr/bin/bash
+
+if [ "$1" == "name" ]; then
+	echo "spell"
+elif [ "$1" == "latest" ]; then
+	echo "1.1"
+elif [ "$1" == "versions" ]; then
+	if [ -z "$2" ]; then
+		echo "1.1"
+	elif [ "$2" == "1.1" ]; then
+		if [ "$3" == "src" ]; then
+			echo "https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz"
+		elif [ "$3" == "dst" ]; then
+			echo "spell-1.1"
+		elif [ "$3" == "build" ]; then
+			echo "gnu"
+		fi
+	fi
+fi
