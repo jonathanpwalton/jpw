@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 if [ "$1" == "name" ]; then
-	echo "spell"
+	echo "gnu-spell"
 elif [ "$1" == "latest" ]; then
 	echo "1.1"
 elif [ "$1" == "versions" ]; then
