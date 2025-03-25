@@ -13,12 +13,6 @@ cwd() {
 	cd "$1" || error "unable to cd $1"
 }
 
-require_root() {
-	if [ "$EUID" -ne 0 ]; then
-		error "you cannot use this command unless you are root"
-	fi
-}
-
 declare -A installed=()
 
 if [[ -e /var/cache/jpw/.installed ]]; then
@@ -31,10 +25,9 @@ if [[ -e /var/cache/jpw/.installed ]]; then
 fi
 
 write_installed () {
-	require_root
-	rm -f /var/cache/jpw/.installed
+	sudo rm -f /var/cache/jpw/.installed
 	for pkg in "${!installed[@]}"; do
-		echo "${pkg}:${installed[$pkg]}" >> /var/cache/jpw/.installed
+		echo "${pkg}:${installed[$pkg]}" | sudo tee -a /var/cache/jpw/.installed
 	done
 }
 
@@ -47,7 +40,7 @@ uninstall_package() {
 		error "failed to uninstall $pkg"
 	fi
 
-	rm -rf "/var/cache/jpw/$pkg"
+	sudo rm -rf "/var/cache/jpw/$pkg"
 	unset "installed[$pkg]"
 	write_installed
 }
@@ -71,7 +64,7 @@ install_package() {
 	tmpdir="$(mktemp)dir"
 	mkdir "$tmpdir"
 	cwd "$tmpdir"
-	wget --no-cache -q --show-progress "https://raw.githubusercontent.com/jonathanpwalton/jpw/refs/heads/main/pkg/$pkg"
+	wget --no-cache -q --show-progress "https://raw.githubusercontent.com/jonathanpwalton/jpw/main/pkg/$pkg"
 
 	case "$?" in
 		4 ) error "network failure";;
@@ -96,8 +89,10 @@ install_package() {
 		* ) error "extraction unimplemented for $src";;
 	esac
 
-	mkdir -p "$dir"
+	sudo mkdir -p "$dir"
 	cwd "$dir"
+	tmpowner="$(whoami)"
+	sudo chown -R "$tmpowner" "$dir"
 	
 	case "$build" in
 		gnu )
@@ -109,14 +104,14 @@ install_package() {
 				cd $dir/$dst
 				./configure $cfg
 				make
-				make install
+				sudo make install
 				make clean
 			" > install
 
 			echo "
 				set -e
 				cd $dir/$dst
-				make uninstall
+				sudo make uninstall
 			" > uninstall
 		;; * )
 			error "building unimplemented for $build";;
@@ -124,9 +119,12 @@ install_package() {
 
 	if ! /usr/bin/env bash install; then
 		cwd "/"
-		rm -rf "$dir"
+		sudo rm -rf "$dir"
 		error "failed to install '$pkg' version '$ver'";
 	fi
+
+	rootowner=$(sudo whoami)
+	sudo chown -R "$rootowner" "$dir"
 
 	installed[$pkg]=$ver
 	write_installed
@@ -138,7 +136,7 @@ shift
 case "$cmd" in
 	"" )
 		error "command not supplied, try '$0 help' for more information";;
-	-h | help )	
+	help )	
 		printf "%s %s\n%s\n\n" "$NAME" "$VERSION" "$DESCRIPTION"
 
 		printf "usage: %s <command>\n" "$0"
@@ -154,15 +152,13 @@ case "$cmd" in
 		printf "  <name>[:<version>]\n"
 		
 		printf "\nsubmit issue reports to <https://github.com/jonathanpwalton/jpw>\n";;
-	-a | -v | about )
+	about )
 		printf "%s %s\nCopyright (C) 2025 Jonathan Walton\n\n" $NAME $VERSION
 
 		printf "License GPLv3+: GNU GPL version 3 or later <https://www.gnu.org/licenses/gpl.html>\n"
     printf "This is free software: you are free to change and redistribute it.\n"
 		printf "There is NO WARRANTY, to the extent permitted by law.\n";;
-	-i | install )
-		require_root
-
+	install )
 		if [[ -z $1 ]]; then
 			error "no package to get, try '$0 help' for more information"
 		fi
@@ -183,9 +179,7 @@ case "$cmd" in
 
 			install_package "${pkg_ver[0]}" "${pkg_ver[1]}" "$cfg"
 		done ;;
-	-u | uninstall | -r | remove )
-		require_root
-
+	remove )
 		if [[ -z $1 ]]; then
 			error "no package to rid, try '$0 help' for more information"
 		fi
@@ -198,7 +192,7 @@ case "$cmd" in
 			uninstall_package "$1"
 			shift
 		done ;;
-	-l | list )
+	list )
 		for pkg in "${!installed[@]}"; do
 			printf "%s %s\n" "$pkg" "${installed[$pkg]}"
 		done;;
