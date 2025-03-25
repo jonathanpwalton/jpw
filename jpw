@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+mkdir -p /usr/share/jpw
+WORKSPACE="$_"
+WORKER="jpw-worker"
+
+declare -A JPW=(
+	["name"]="jpw"
+	["version"]="2025.03.06"
+	["description"]="a simplicity-focused bash-based package manager for GNU/Linux"
+	["command"]="$1"
+)
+shift
+
+error(){ # msg: str
+  printf "error: %s\n" "$1"
+  exit 1
+}
+
+case "${JPW["command"]}" in "" ) error "a command must be supplied, try '$0 help' for available commands"
+  ;; help | -h | --help )
+    printf "%s %s, %s\n\n" "${JPW["name"]}" "${JPW["version"]}" "${JPW["description"]}"
+
+    printf "usage: %s <command>\n" "${JPW["name"]}"
+    printf "  %-30s %s\n" "help" "display this help text and exit"
+  ;; * )
+    error "invalid command '${JPW["command"]}', try '$0 help' for available commands"
+esac
