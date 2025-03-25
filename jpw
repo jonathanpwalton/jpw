@@ -1,41 +1,43 @@
 #!/usr/bin/env bash
 
 NAME="jpw"
-VERSION="0.0.1"
+VERSION="2025.03.25"
 DESCRIPTION="a simple build-from-source package manager for GNU/Linux"
 
-commands=(
-	["help"]="display this help text and exit"
-	["install"]="install a package"
-	["uninstall"]="uninstall a package"
-)
-
-error () {
-	echo "error: $1"
+error() {
+	printf "error: %s\n" "$1"
 	exit 1
 }
 
-require_root () {
+cwd() {
+	cd "$1" || error "unable to cd $1"
+}
+
+require_root() {
 	if [ "$EUID" -ne 0 ]; then
 		error "you cannot use this command unless you are root"
 	fi
 }
 
-usage () {
-	echo "${NAME} ${VERSION}, ${DESCRIPTION}"
-	echo "usage: $0 <command>"
+usage() {
+	printf "%s %s, %s\n" "$NAME" "$VERSION" "$DESCRIPTION"
+	printf "usage: %s <command>\n" "$0"
+
+	declare -A COMMANDS=(
+		["help"]="print this help text and exit"
+		["install"]="install a package"
+		["uninstall"]="uninstall a package"
+		["installed"]="list installed packages"
+	)
+
+	for COMMAND in "${!COMMANDS[@]}"; do
+		printf "  %-20s %s\n" "$COMMAND" "${COMMANDS[$COMMAND]}"
+	done
+
 	exit 0
 }
 
-declare -A installed
-
-write_installed () {
-	require_root
-	rm -f /var/cache/jpw/.installed
-	for pkg in "${!installed[@]}"; do
-		echo "${pkg}:${installed[$pkg]}" >> /var/cache/jpw/.installed
-	done
-}
+declare -A installed=()
 
 if [[ -e /var/cache/jpw/.installed ]]; then
 	mapfile INSTALLED_LINES < /var/cache/jpw/.installed
@@ -46,113 +48,149 @@ if [[ -e /var/cache/jpw/.installed ]]; then
 	done
 fi
 
-if [ -z "$1" ]; then
-	error "command not supplied, try '$0 help' for more information"
-elif [ "$1" = "help" ]; then
-	usage
-elif [ "$1" = "install" ]; then
+write_installed () {
 	require_root
-	shift
+	rm -f /var/cache/jpw/.installed
+	for pkg in "${!installed[@]}"; do
+		echo "${pkg}:${installed[$pkg]}" >> /var/cache/jpw/.installed
+	done
+}
 
-	if [ -z "$1" ]; then
-		error "no packages to install, try '$0 help' for more information"
+uninstall_package() {
+	pkg=$1
+
+	cd "/var/cache/jpw/$pkg" || error "failed to cd /var/cache/jpw/$pkg"
+
+	if ! /usr/bin/env bash uninstall; then
+		error "failed to uninstall $pkg"
 	fi
 
-	while (("$#")); do
-		IFS=":" read -ra pkg_ver <<< "$1"
+	rm -rf "/var/cache/jpw/$pkg"
+	unset "installed[$pkg]"
+	write_installed
+}
 
-		if [ -z "${pkg_ver[1]}" ]; then
-			pkg_ver[1]="latest"
+install_package() {
+	pkg=$1
+	ver=$2
+
+	if [[ "${installed[$pkg]+1}" ]]; then
+		printf "'%s' version '%s' was previously installed, do you wish to replace it with version '%s'? " "$pkg" "${installed[$pkg]}" "$ver"
+		read -r answer
+
+		if [[ ${answer,,} != "y" ]] && [[ ${answer,,} != "yes" ]]; then
+			return
 		fi
 
-		tmpdir="$(mktemp)dir"
-		mkdir "$tmpdir"
-		cd "$tmpdir" || error "failed to cd /tmp"
+		uninstall_package "$pkg"
+	fi
 
-		if ! wget --no-cache -q --show-progress "https://raw.githubusercontent.com/jonathanpwalton/jpw/refs/heads/main/pkg/${pkg_ver[0]}"; then
-			error "no such package '${pkg_ver[0]}'"
-		fi
+	tmpdir="$(mktemp)dir"
+	mkdir "$tmpdir"
+	cwd "$tmpdir"
+	wget --no-cache -q --show-progress "https://raw.githubusercontent.com/jonathanpwalton/jpw/refs/heads/main/pkg/$pkg"
 
-		if [ "${pkg_ver[1]}" == "latest" ]; then
-			pkg_ver[1]="$(/usr/bin/env bash "${pkg_ver[0]}" latest)"
-		fi
+	case "$?" in
+		4 ) error "network failure";;
+		8 ) error "no such package $pkg";;
+	esac
 
-		if [ -z "$(/usr/bin/env bash "${pkg_ver[0]}" versions "${pkg_ver[1]}" src)" ]; then
-			error "no such version '${pkg_ver[1]}' for '${pkg_ver[0]}'"
-		fi
+	if [[ $ver = latest ]]; then
+		ver="$(/usr/bin/env bash "$pkg" latest)"
+	fi
 
-		name=$(/usr/bin/env bash "${pkg_ver[0]}" name)		
-		src=$(/usr/bin/env bash "${pkg_ver[0]}" versions "${pkg_ver[1]}" src)
-		dst=$(/usr/bin/env bash "${pkg_ver[0]}" versions "${pkg_ver[1]}" dst)
-		build=$(/usr/bin/env bash "${pkg_ver[0]}" versions "${pkg_ver[1]}" build)
-		tar=""
+	if [[ -z $(/usr/bin/env bash "$pkg" versions "$ver" src) ]]; then
+		error "no such version '$ver' for '$pkg'"
+	fi
 
-		pkgdir="/var/cache/jpw/${name}"
-		mkdir -p "$pkgdir"
-		cd "$pkgdir" || error "failed to cd /${pkgdir}"
+	dir="/var/cache/jpw/$pkg"
+	src=$(/usr/bin/env bash "$pkg" versions "$ver" src)
+	dst=$(/usr/bin/env bash "$pkg" versions "$ver" dst)
+	build=$(/usr/bin/env bash "$pkg" versions "$ver" build)
+	
+	case "$src" in
+		*.tar.* ) extract="tar xf";;
+		* ) error "extraction unimplemented for $src";;
+	esac
 
-		if [[ $src = *.tar.gz ]]; then
-			tar="tar xzf"
-		else
-			error "${src} extraction is not implemented"
-		fi
-
-		if [[ $build = "gnu" ]]; then
+	mkdir -p "$dir"
+	cwd "$dir"
+	
+	case "$build" in
+		gnu )
 			echo "
-			set -e
-			wget -q --show-progress $src
-			$tar $(basename "$src")
-			rm -f $(basename "$src")
-			cd $dst
-			./configure
-			make
-			make install
-			make clean
+				set -e
+				wget -q --show-progress $src
+				$extract $dir/$(basename "$src")
+				rm -f $dir/$(basename "$src")
+				cd $dir/$dst
+				./configure
+				make
+				make install
+				make clean
 			" > install
 
 			echo "
-			set -e
-			cd $dst
-			make uninstall
+				set -e
+				cd $dir/$dst
+				make uninstall
 			" > uninstall
-		else
-			error "$build is not implemented"
-		fi
+		;; * )
+			error "building unimplemented for $build";;
+	esac
 
-		if ! /usr/bin/env bash install; then
-			error "failed to install ${name} version ${pkg_ver[1]}"
-		fi
-
-		installed[$name]=${pkg_ver[1]}
-		write_installed
-
-		shift
-	done
-elif [ "$1" = "uninstall" ]; then
-	shift
-	require_root
-
-	if [ -z "$1" ]; then
-		error "no packages to install, try '$0 help' for more information"
+	if ! /usr/bin/env bash install; then 
+		error "failed to install '$pkg' version '$ver'";
 	fi
 
-	while (("$#")); do
-		if [[ ! "${installed[$1]+1}" ]]; then
-			error "cannot uninstall package '$1' as it was not previously installed"
+	installed[$pkg]=$ver
+	write_installed
+}
+
+cmd=$1
+shift
+
+case "$cmd" in
+	"" )
+		error "command not supplied, try '$0 help' for more information";;
+	help )
+		usage;;
+	install )
+		require_root
+
+		if [[ -z $1 ]]; then
+			error "no package to install, try '$0 help' for more information"
 		fi
 
-		cd "/var/cache/jpw/$1" || error "failed to cd /var/cache/jpw/$1"
+		while (("$#")); do
+			IFS=":" read -ra pkg_ver <<< "$1"
 
-		if ! /usr/bin/env bash uninstall; then
-			error "failed to uninstall $1"
+			if [[ -z ${pkg_ver[1]} ]]; then
+				pkg_ver[1]="latest"
+			fi
+
+			install_package "${pkg_ver[0]}" "${pkg_ver[1]}"
+			shift
+		done;;
+	uninstall )
+		require_root
+
+		if [[ -z $1 ]]; then
+			error "no package to uninstall, try '$0 help' for more information"
 		fi
 
-		rm -rf "/var/cache/jpw/$1"
-		unset "installed[$1]"
-		write_installed
+		while (("$#")); do
+			if [[ ! ${installed[$1]+1} ]]; then
+				error "cannot uninstall not-installed package '$1'"
+			fi
 
-		shift
-	done
-else
-	error "invalid command '$1', try '$0 help' for more information"
-fi
+			uninstall_package "$1"
+			shift
+		done;;
+	installed )
+		for pkg in "${!installed[@]}"; do
+			printf "%s %s\n" "$pkg" "${installed[$pkg]}"
+		done;;
+	* )
+		error "invalid command '$cmd', try '$0 help' for more information"
+esac
