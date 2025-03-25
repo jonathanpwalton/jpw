@@ -9,7 +9,7 @@ elif [ "$1" == "versions" ]; then
 		echo "1.25"
 	elif [ "$2" == "1.25" ]; then
 		if [ "$3" == "src" ]; then
-			echo "https://download.savannah.gnu.org/releases/lzip/lzip-1.25.tar.lz"
+			echo "https://download.savannah.gnu.org/releases/lzip/lzip-1.25.tar.gz"
 		elif [ "$3" == "dst" ]; then
 			echo "lzip-1.25"
 		elif [ "$3" == "build" ]; then
