@@ -57,7 +57,7 @@ elif [ "$1" = "install" ]; then
 	if [ -z "$1" ]; then
 		error "no packages to install, try '$0 help' for more information"
 	fi
-	
+
 	while (("$#")); do
 		IFS=":" read -ra pkg_ver <<< "$1"
 
@@ -76,7 +76,7 @@ elif [ "$1" = "install" ]; then
 		if [ "${pkg_ver[1]}" == "latest" ]; then
 			pkg_ver[1]="$(/usr/bin/env bash "${pkg_ver[0]}" latest)"
 		fi
-		
+
 		if [ -z "$(/usr/bin/env bash "${pkg_ver[0]}" versions "${pkg_ver[1]}" src)" ]; then
 			error "no such version '${pkg_ver[1]}' for '${pkg_ver[0]}'"
 		fi
