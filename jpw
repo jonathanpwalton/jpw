@@ -19,26 +19,6 @@ require_root() {
 	fi
 }
 
-usage() {
-	printf "%s %s\n%s\n\n" "$NAME" "$VERSION" "$DESCRIPTION"
-
-	printf "usage: %s <command>\n" "$0"
-
-	printf "\ncommands:\n"
-	printf "  %-25s %s\n" "get [pkg [-cfg=*]...]"		"retrieve and install package(s)"
-	printf "  %-25s %s\n" "rid [pkg...]" 						"remove package(s) and associated files"
-	printf "  %-25s %s\n" "via" 										"list packages installed via this utility"
-	printf "  %-25s %s\n" "help" 										"print this help text and exit"
-	printf "  %-25s %s\n" "about" 									"print the version, license stub, and warranty stub"
-
-	printf "\npackage format:\n"
-	printf "  <name>[:<version>]\n"
-	
-	printf "\nsubmit issue reports to <https://github.com/jonathanpwalton/jpw>\n"
-
-	exit 0
-}
-
 declare -A installed=()
 
 if [[ -e /var/cache/jpw/.installed ]]; then
@@ -158,14 +138,29 @@ shift
 case "$cmd" in
 	"" )
 		error "command not supplied, try '$0 help' for more information";;
-	help )
-		usage;;
-	about )
+	-h | help )	
+		printf "%s %s\n%s\n\n" "$NAME" "$VERSION" "$DESCRIPTION"
+
+		printf "usage: %s <command>\n" "$0"
+
+		printf "\ncommands:\n"
+		printf "  %-30s %s\n" "install [pkg [-cfg=*] ...]"  "retrieve and install package(s)"
+		printf "  %-30s %s\n" "remove [pkg ...]"            "uninstall package(s) and remove associated files"
+		printf "  %-30s %s\n" "list"                        "list packages installed via this utility"
+		printf "  %-30s %s\n" "help"                        "print this help text and exit"
+		printf "  %-30s %s\n" "about"                       "print the version, license stub, and warranty stub"
+
+		printf "\npackage format:\n"
+		printf "  <name>[:<version>]\n"
+		
+		printf "\nsubmit issue reports to <https://github.com/jonathanpwalton/jpw>\n";;
+	-a | -v | about )
 		printf "%s %s\nCopyright (C) 2025 Jonathan Walton\n\n" $NAME $VERSION
+
 		printf "License GPLv3+: GNU GPL version 3 or later <https://www.gnu.org/licenses/gpl.html>\n"
     printf "This is free software: you are free to change and redistribute it.\n"
 		printf "There is NO WARRANTY, to the extent permitted by law.\n";;
-	get )
+	-i | install )
 		require_root
 
 		if [[ -z $1 ]]; then
@@ -187,8 +182,8 @@ case "$cmd" in
 			fi
 
 			install_package "${pkg_ver[0]}" "${pkg_ver[1]}" "$cfg"
-		done;;
-	rid )
+		done ;;
+	-u | uninstall | -r | remove )
 		require_root
 
 		if [[ -z $1 ]]; then
@@ -202,8 +197,8 @@ case "$cmd" in
 
 			uninstall_package "$1"
 			shift
-		done;;
-	via )
+		done ;;
+	-l | list )
 		for pkg in "${!installed[@]}"; do
 			printf "%s %s\n" "$pkg" "${installed[$pkg]}"
 		done;;

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+if [ "$1" == "name" ]; then
+	echo "gnu-coreutils"
+elif [ "$1" == "latest" ]; then
+	echo "9.6"
+elif [ "$1" == "versions" ]; then
+	if [ -z "$2" ]; then
+		echo "9.6"
+	elif [ "$2" == "9.6" ]; then
+		if [ "$3" == "src" ]; then
+			echo "https://ftp.gnu.org/gnu/coreutils/coreutils-9.6.tar.gz"
+		elif [ "$3" == "dst" ]; then
+			echo "coreutils-9.6"
+		elif [ "$3" == "build" ]; then
+			echo "gnu"
+		fi
+	fi
+fi
