@@ -51,8 +51,12 @@ if [ -z "$1" ]; then
 elif [ "$1" = "help" ]; then
 	usage
 elif [ "$1" = "install" ]; then
-	shift
 	require_root
+	shift
+
+	if [ -z "$1" ]; then
+		error "no packages to install, try '$0 help' for more information"
+	fi
 	
 	while (("$#")); do
 		IFS=":" read -ra pkg_ver <<< "$1"
@@ -124,26 +128,31 @@ elif [ "$1" = "install" ]; then
 
 		shift
 	done
+elif [ "$1" = "uninstall" ]; then
+	shift
+	require_root
 
+	if [ -z "$1" ]; then
+		error "no packages to install, try '$0 help' for more information"
+	fi
+
+	while (("$#")); do
+		if [[ ! "${installed[$1]+1}" ]]; then
+			error "cannot uninstall package '$1' as it was not previously installed"
+		fi
+
+		cd "/var/cache/jpw/$1" || error "failed to cd /var/cache/jpw/$1"
+
+		if ! /usr/bin/env bash uninstall; then
+			error "failed to uninstall $1"
+		fi
+
+		rm -rf "/var/cache/jpw/$1"
+		unset "installed[$1]"
+		write_installed
+
+		shift
+	done
 else
 	error "invalid command '$1', try '$0 help' for more information"
 fi
-
-: '
-mapfile LINES < /testing
-declare -A INSTALLED
-
-for i in "${LINES[@]}"; do
-	IFS=':' read -ra LINE <<< $i
-	INSTALLED[${LINE[0]}]=${LINE[1]}
-done
-
-for i in "${!INSTALLED[@]}"; do
-  echo "key  : $i"
-  echo "value: ${INSTALLED[$i]}"
-done
-
-if [ "${INSTALLED[spell]+1}" == "1" ]; then
-	echo "hi"
-fi
-'
