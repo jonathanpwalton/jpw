@@ -6,7 +6,7 @@ AVAILABLE_DB="$WORKSPACE/.available"
 INSTALLED_DB="$WORKSPACE/.installed"
 
 PRG="jpw"
-PRG_VER="2025.03.06"
+PRG_VER="2025.03.26"
 PRG_DSC="a simplicity-focused bash-based package manager for GNU/Linux"
 PRG_CMD="$1"; shift
 
@@ -33,9 +33,29 @@ require_root() {
   exit 1
 }
 
+enlist_worker(){
+  require_root
+	useradd -M "$WORKER"
+}
+
+direct_worker(){ # cmd
+  require_root
+	su "$WORKER" -c "$1"	
+}
+
+retire_worker(){
+  require_root
+	userdel -f "$WORKER"
+}
+
 list_available_package_names(){
   if [[ ! -e $AVAILABLE_DB ]]; then return; fi
-  sed -E -e s/name=//g -e s/\\s.+//g $AVAILABLE_DB
+  sed -E -e s/^name=//g -e s/\\s.+//g $AVAILABLE_DB
+}
+
+list_installed_package_names(){
+  if [[ ! -e $INSTALLED_DB ]]; then return; fi
+  grep -E ^pkg= $INSTALLED_DB | sed -E s/^pkg=//g
 }
 
 update_available_packages(){
@@ -49,7 +69,7 @@ update_available_packages(){
 
 is_package_available(){
   if [[ ! -e $AVAILABLE_DB ]]; then
-    return 0
+    return 1
   fi
 
   grep -q -E name="$1"\\s $AVAILABLE_DB
@@ -127,7 +147,31 @@ install_targets(){
       continue
     fi
 
-    echo "$pkg $ver: $src $dst $bld"
+    mkdir -p $WORKSPACE/"$pkg"
+    cd "$WORKSPACE/$pkg" || exit 1
+    download "$src"
+    tar xf "$(basename "$src")"
+    rm -f "$(basename "$src")"
+    cd "$WORKSPACE/$pkg/$dst" || exit 1
+
+    case "$bld" in "") exit 1
+      ;; GNU )
+        enlist_worker
+
+        chown -R $WORKER "$WORKSPACE/$pkg"
+        direct_worker "./configure $cfg"
+        direct_worker "make"
+        make install
+        direct_worker "make clean"
+        chown -R root "$WORKSPACE/$pkg"
+        
+        retire_worker
+      ;; * )
+        echo "error: $bld building is not implemented"
+        exit 1
+    esac
+
+    printf "pkg=%s\nver=%s\ncfg=%s\nupg=%s\n" "$pkg" "$ver" "$cfg" "$upg" >> $WORKSPACE/.installed
   done
 }
 
@@ -175,13 +219,17 @@ case "$PRG_CMD" in "" ) printf "error: a command is required, try '%s help' for 
 
     remove_targets
     install_targets
+    exit 0
   ;; list )
     case "$1" in
       available )
         list_available_package_names
         exit 0
+      ;; installed )
+        list_installed_package_names
+        exit 0
       ;; * )
-        printf "error: the '%s' command requires exactly one of the following operands: {installed | available}\n" "$PRG_CMD"
+        printf "error: the '%s' command requires one of the following operands: {installed | available}\n" "$PRG_CMD"
         exit 1
     esac
   ;; help | -h | --help )
@@ -190,11 +238,11 @@ case "$PRG_CMD" in "" ) printf "error: a command is required, try '%s help' for 
     echo "usage: $0 <command>"
     echo
     echo "commands:"
-    echo "  update                                fetch the latest database of available packages"
-    echo "  upgrade                               perform upgrade of all packages marked for upgrading"
-    echo "  install [package [-v=*] [-c=*] ...]   build and install package(s)"
-    echo "  remove [package ...]                  uninstall and remove package(s) and files"
-    echo "  list {installed | available}          print a list of package names"
+    echo "  update                                                fetch the latest database of available packages"
+    echo "  upgrade                                               perform upgrade of all packages marked for upgrading"
+    echo "  install [package [-v <version>] [-c <config>] ...]    build and install package(s)"
+    echo "  remove [package ...]                                  uninstall and remove package(s) and files"
+    echo "  list {installed | available}                          print a list of package names"
     exit 0
   ;; * )
     printf "error: '%s' is not a valid command, try '%s help' for more information\n" "$PRG_CMD" "$0"
