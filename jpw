@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 
-readonly JPW="/var/lib/jpw"
-readonly PKG="$JPW/pkg"
-readonly DBA="$JPW/available"
-readonly DBI="$JPW/installed"
+declare -ri TRUE=0
+declare -ri FALSE=1
+
+declare -r JPW="/var/lib/jpw"
+declare -r PKG="$JPW/pkg"
+declare -r DBA="$JPW/available"
+declare -r DBI="$JPW/installed"
+declare -r WRK="jpw-worker-$(cat /proc/sys/kernel/random/uuid)"
 
 function rooted {
-  return $(( EUID == 0 ? 0 : 1 ))
+  return $(( EUID == 0 ? TRUE : FALSE ))
 }
 
 function warn {
@@ -25,9 +29,50 @@ function download {
   fi
 
   case $? in
+    0 ) return 0 ;;
     4 ) fail "network failure" ;;
-    8 ) fail "failed to retrieve $1" ;;
+    * ) fail "failed to retrieve $1" ;;
   esac
+}
+
+function cmd::update {
+  if ! rooted; then
+    fail "cannot update without root privilege"
+  fi
+
+  download https://raw.githubusercontent.com/jonathanpwalton/jpw/main/available $DBA
+}
+
+function cmd::install {
+  if ! rooted; then
+    fail "cannot install without root privilege"
+  elif [[ -z $1 ]]; then
+    fail "install requires one or more packages as operands, see '$0 help' for more information"
+  fi
+
+  while (($#)); do
+    local pkg=$1; shift
+    local ver="latest";
+    local cfg="";
+
+    if [[ $1 = -v ]]; then shift; ver=$1; shift; fi
+    if [[ $1 = -c ]]; then shift; cfg=$1; shift; fi
+
+    if ! cmd::list "available" | grep -E -q "^$pkg$"; then
+      warn "'$pkg' is not available, skipping"
+      continue
+    fi
+
+    fail
+  done
+}
+
+function cmd::list {
+  if [[ $1 = "available" ]]; then
+    grep -E "^function jpw::pkg::\\S+ {$" $DBA | sed -E -e "s/^function jpw::pkg:://g" -e "s/ \{$//g"
+  else
+    fail "list requires one of the following operands: {available | installed}"
+  fi
 }
 
 function cmd::help {
@@ -40,15 +85,7 @@ function cmd::help {
   exit 0
 }
 
-function cmd::update {
-  if ! rooted; then
-    fail "cannot update without root privilege"
-  fi
-
-  download https://raw.githubusercontent.com/jonathanpwalton/jpw/main/available $DBA
-}
-
-function main () {
+function main {
   local program=$0
   local command=$1; shift
 
@@ -58,6 +95,8 @@ function main () {
 
   case "$command" in
     update ) cmd::update "$@" ;;
+    list ) cmd::list "$@" ;;
+    install ) cmd::install "$@" ;;
     help ) cmd::help "$@" ;;
     * ) fail "missing or invalid command, see '$program help' for more information" ;;
   esac

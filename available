@@ -2,7 +2,7 @@
 
 function jpw::pkg::wget2 {
   case $1 in
-    "" )
+    latest )
       echo "2.2.0" ;;
     2.2.0 )
       case $2 in
@@ -17,7 +17,7 @@ function jpw::pkg::wget2 {
 
 function jpw::pkg::lzip {
   case $1 in
-    "" )
+    latest )
       echo "1.25" ;;
     1.25 )
       case $2 in
@@ -32,7 +32,7 @@ function jpw::pkg::lzip {
 
 function jpw::pkg::gnu-coreutils {
   case $1 in
-    "" )
+    latest )
       echo "9.6" ;;
     9.6 )
       case $2 in
@@ -47,7 +47,7 @@ function jpw::pkg::gnu-coreutils {
 
 function jpw::pkg::gnu-ed {
   case $1 in
-    "" )
+    latest )
       echo "1.21.1" ;;
     1.21.1 )
       case $2 in
@@ -62,7 +62,7 @@ function jpw::pkg::gnu-ed {
 
 function jpw::pkg::gnu-spell {
   case $1 in
-    "" )
+    latest )
       echo "1.1" ;;
     1.1 )
       case $2 in
