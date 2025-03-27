@@ -7,6 +7,8 @@ declare -r JPW="/var/lib/jpw"
 declare -r PKG="$JPW/pkg"
 declare -r DBA="$JPW/available"
 declare -r DBI="$JPW/installed"
+declare -r STI="$JPW/.install"
+declare -r STR="$JPW/.remove"
 declare -r WRK="jpw-worker-$(cat /proc/sys/kernel/random/uuid)"
 
 function rooted {
@@ -20,6 +22,18 @@ function warn {
 function fail {
   echo "error: $1"
   exit 1
+}
+
+enlist_worker(){
+	useradd -M "$WRK"
+}
+
+direct_worker(){ # cmd
+	su "$WRK" -c "$1"	
+}
+
+retire_worker(){
+	userdel -f "$WRK"
 }
 
 function download {
@@ -48,6 +62,8 @@ function cmd::install {
     fail "cannot install without root privilege"
   elif [[ -z $1 ]]; then
     fail "install requires one or more packages as operands, see '$0 help' for more information"
+  elif ! [[ -e $DBA ]]; then
+    fail "the available package database has not been initialized, run '$0 update' first"
   fi
 
   while (($#)); do
@@ -55,13 +71,55 @@ function cmd::install {
     if [[ $1 = -v ]]; then shift; local ver=$1; shift; else local ver="latest"; fi
     if [[ $1 = -c ]]; then shift; local cfg=$1; shift; else local cfg=""; fi
 
-    fail
+    if ! /usr/bin/env bash $DBA "$pkg"; then
+      warn "package '$pkg' not found, skipping"
+      continue
+    fi
+
+    if [[ $ver = latest ]]; then
+      ver=$(/usr/bin/env bash $DBA "$pkg" "latest")
+      local -i upg=TRUE
+    else
+      local -i upg=FALSE
+    fi
+
+    if ! /usr/bin/env bash $DBA "$pkg" "$ver"; then
+      warn "package '$pkg' version '$ver' not found, skipping"
+      continue
+    fi
+
+    if /usr/bin/env bash $DBI "$pkg"; then
+      local -l answer
+      read -p "warning: package '$pkg' is already installed, remove and replace? [Y] " -r answer
+
+      if [[ -z $answer ]] || [[ $answer = "y" || $answer = "yes" ]]; then
+        echo "removing and replacing package '$pkg'"
+        echo "$pkg" >> $STR
+      else
+        echo "skipping installation of package '$pkg'"
+        continue
+      fi
+    fi
+    
+    {
+      echo "$pkg"
+      echo "$ver"
+      echo "$cfg"
+      echo "$upg"
+    } >> $STI
   done
+
+  staged::remove
+  staged::install
 }
 
 function cmd::list {
   if [[ $1 = "available" ]]; then
-    grep -E ": 'pkg'" $DBA | grep -E -o "\S+)" | sed -E "s/\)//g"
+    if [[ -e $DBA ]]; then
+      grep -E ": 'pkg'" $DBA | grep -E -o "\S+)" | sed -E "s/\)//g"
+    else
+      fail "the available package database has not been initialized, run '$0 update' first"
+    fi
   else
     fail "list requires one of the following operands: {available | installed}"
   fi
@@ -77,12 +135,104 @@ function cmd::help {
   exit 0
 }
 
+function staged::remove {
+  if ! [[ -e $STR ]]; then
+    return 0
+  fi
+
+  local -a pkgs
+  mapfile -t pkgs < $STR; rm -f $STR
+
+  local pkg
+  for pkg in "${pkgs[@]}"; do
+    fail "unimplemented remove pkg '$pkg'"
+  done
+}
+
+function staged::install {
+  if ! [[ -e $STI ]]; then
+    return 0
+  fi
+
+  local -a lines
+  mapfile -t lines < $STI; rm -f $STI
+
+  local i
+  for ((i=0; i < ${#lines[@]}; i+=4)) do
+    local pkg=${lines[(i + 0)]}
+    local ver=${lines[(i + 1)]}
+    local cfg=${lines[(i + 2)]}
+    local -i upg=${lines[(i + 3)]}
+
+    local src=$(/usr/bin/env bash $DBA "$pkg" "$ver" src)
+    local dst=$(/usr/bin/env bash $DBA "$pkg" "$ver" dst)
+    local bld=$(/usr/bin/env bash $DBA "$pkg" "$ver" bld)
+
+    if [[ -z "$src" ]] || [ -z "$dst" ] || [ -z "$bld" ]; then
+      warn "cannot install package '$pkg' due to invalid formatting in the available package database"
+      continue
+    fi
+
+    mkdir -p "$PKG/$pkg"
+    cd "$PKG/$pkg" || continue
+    download "$src"
+    tar xf "$(basename "$src")"
+    rm -f "$(basename "$src")"
+    cd "$PKG/$pkg/$dst" || continue
+    
+    case "$bld" in
+      gnu )
+        enlist_worker
+        chown -R "$WRK" "$PKG/$pkg/$dst"
+        direct_worker "./configure $cfg"
+        direct_worker "make"
+        make install
+        direct_worker "make clean"
+        chown -R "$(id -nu $EUID)" "$PKG/$pkg/$dst"
+        retire_worker
+
+        echo "cd $PKG/$pkg/$dst" > "$PKG/$pkg/uninstall"
+        echo "make uninstall" >> "$PKG/$pkg/uninstall"
+      ;;
+      * )
+        fail "building '$bld' is not implemented"
+    esac
+
+    local rule=$'s/^#REPLACEME/'
+    rule+="\"$pkg\") : 'pkg'; case \$2 in "") exit 0 ;; ver) echo \$'$ver'; exit 0 ;; cfg) echo \$'$cfg'; exit 0 ;; upg) exit $upg ;; esac; exit 0;;\\n"
+    rule+="#REPLACEME"
+    rule+=$'/g'
+    sed "$rule" -i $DBI
+  done
+}
+
 function main {
   local program=$0
   local command=$1; shift
 
   if rooted; then
     mkdir -p $PKG
+
+    if ! [[ -e $DBI ]]; then
+      {
+        echo '#!/usr/bin/env bash'
+        echo
+        echo 'case "$1" in'
+        echo '#REPLACEME'
+        echo '  *)'
+        echo '    exit 1'
+        echo '  ;;'
+        echo 'esac'
+      } > $DBI
+    fi
+
+    if [[ -e $STI ]]; then
+      rm -f $STI
+    fi
+
+    if [[ -e $STR ]]; then
+      rm -f $STR
+    fi
   fi
 
   case "$command" in
