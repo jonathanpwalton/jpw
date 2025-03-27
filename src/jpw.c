@@ -19,14 +19,11 @@ int main (int argc, char ** argv) {
     fprintf(stderr, "error: command not provided, try '%s help' for more information\n", argv[0]);
     exit(1);
   }
-
-  FILE * f = fopen("/home/jonathan/dne/test.txt", "w");
-  if (!f) {
-    fprintf(stderr, ":(\n");
-    exit (2);
-  }
-  fprintf(f, "hello\n");
-  fclose(f);
+  
+  /*
+  printf("%.16s%.*s :)\n", "file name", (int) fmax(16 - strlen("file name"), 0), "                    ");
+  printf("%.16s%.*s :)\n", "file name longer than asdasdasd", (int) fmax(16.0 - strlen("file name longer than asdasdasd"), 0.0), "                    ");
+  */
 
   if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stdout, "%s %s, %s\n", INFO.prg, INFO.ver, INFO.dsc);
