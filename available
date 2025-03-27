@@ -7,13 +7,13 @@ case "$1" in
         exit 0
       ;;
       latest)
-        echo "2.2.0" && exit 0
+        print "%q" "2.2.0" && exit 0
       ;;
       2.2.0) : 'ver'
         case "$3" in
-          src) echo "https://ftp.gnu.org/gnu/wget/wget2-2.2.0.tar.gz" ;;
-          dst) echo "wget2-2.2.0" ;;
-          bld) echo "gnu" ;;
+          src) print "%q" "https://ftp.gnu.org/gnu/wget/wget2-2.2.0.tar.gz" ;;
+          dst) print "%q" "wget2-2.2.0" ;;
+          bld) print "%q" "gnu" ;;
         esac
         exit 0
       ;;
@@ -28,13 +28,13 @@ case "$1" in
         exit 0
       ;;
       latest)
-        echo "1.25" && exit 0
+        print "%q" "1.25" && exit 0
       ;;
       1.25) : 'ver'
         case "$3" in
-          src) echo "https://download.savannah.gnu.org/releases/lzip/lzip-1.25.tar.gz" ;;
-          dst) echo "lzip-1.25" ;;
-          bld) echo "gnu" ;;
+          src) print "%q" "https://download.savannah.gnu.org/releases/lzip/lzip-1.25.tar.gz" ;;
+          dst) print "%q" "lzip-1.25" ;;
+          bld) print "%q" "gnu" ;;
         esac
         exit 0
       ;;
@@ -49,13 +49,13 @@ case "$1" in
         exit 0
       ;;
       latest)
-        echo "9.6" && exit 0
+        print "%q" "9.6" && exit 0
       ;;
       9.6) : 'ver'
         case "$3" in
-          src) echo "https://ftp.gnu.org/gnu/coreutils/coreutils-9.6.tar.gz" ;;
-          dst) echo "coreutils-9.6" ;;
-          bld) echo "gnu" ;;
+          src) print "%q" "https://ftp.gnu.org/gnu/coreutils/coreutils-9.6.tar.gz" ;;
+          dst) print "%q" "coreutils-9.6" ;;
+          bld) print "%q" "gnu" ;;
         esac
         exit 0
       ;;
@@ -70,13 +70,13 @@ case "$1" in
         exit 0
       ;;
       latest)
-        echo "1.21.1" && exit 0
+        print "%q" "1.21.1" && exit 0
       ;;
       1.21.1) : 'ver'
         case "$3" in
-          src) echo "https://ftp.wayne.edu/gnu/ed/ed-1.21.1.tar.lz" ;;
-          dst) echo "ed-1.21.1" ;;
-          bld) echo "gnu" ;;
+          src) print "%q" "https://ftp.wayne.edu/gnu/ed/ed-1.21.1.tar.lz" ;;
+          dst) print "%q" "ed-1.21.1" ;;
+          bld) print "%q" "gnu" ;;
         esac
         exit 0
       ;;
@@ -91,13 +91,13 @@ case "$1" in
         exit 0
       ;;
       latest)
-        echo "1.1" && exit 0
+        print "%q" "1.1" && exit 0
       ;;
       1.1) : 'ver'
         case "$3" in
-          src) echo "https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz" ;;
-          dst) echo "spell-1.1" ;;
-          bld) echo "gnu" ;;
+          src) print "%q" "https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz" ;;
+          dst) print "%q" "spell-1.1" ;;
+          bld) print "%q" "gnu" ;;
         esac
         exit 0
       ;;

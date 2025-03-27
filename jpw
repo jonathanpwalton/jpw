@@ -120,6 +120,10 @@ function cmd::list {
     else
       fail "the available package database has not been initialized, run '$0 update' first"
     fi
+  elif [[ $1 = "installed" ]]; then
+    if [[ -e $DBI ]]; then
+      grep -E "^\"\S+\")" /var/lib/jpw/installed -o | sed -e s/\"//g -e s/\)//g
+    fi
   else
     fail "list requires one of the following operands: {available | installed}"
   fi
@@ -198,11 +202,7 @@ function staged::install {
         fail "building '$bld' is not implemented"
     esac
 
-    local rule=$'s/^#REPLACEME/'
-    rule+="\"$pkg\") : 'pkg'; case \$2 in "") exit 0 ;; ver) echo \$'$ver'; exit 0 ;; cfg) echo \$'$cfg'; exit 0 ;; upg) exit $upg ;; esac; exit 0;;\\n"
-    rule+="#REPLACEME"
-    rule+=$'/g'
-    sed "$rule" -i $DBI
+    sed "s/^#REPLACEME/\"$pkg\") case \"\$2\" in \"\") exit 0;; ver) printf \"%q\" $(printf "%q" "$ver"); exit 0;; cfg) printf \"%q\" $(printf "%q" "$cfg"); exit 0;; upg) exit $upg;; esac; exit 0;;\\n#REPLACEME/g" -i $DBI
   done
 }
 
@@ -217,11 +217,9 @@ function main {
       {
         echo '#!/usr/bin/env bash'
         echo
-        echo 'case "$1" in'
+        echo $'case "$1" in'
         echo '#REPLACEME'
-        echo '  *)'
-        echo '    exit 1'
-        echo '  ;;'
+        echo '*) exit 1;;'
         echo 'esac'
       } > $DBI
     fi
