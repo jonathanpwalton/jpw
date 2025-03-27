@@ -1,0 +1,37 @@
+{
+  "wget2": {
+    "2.2.0": {
+      "src": "https://ftp.gnu.org/gnu/wget/wget2-2.2.0.tar.gz",
+      "dst": "wget2-2.2.0",
+      "bld": "gnu"
+    }
+  },
+  "lzip": {
+    "1.25": {
+      "src": "https://download.savannah.gnu.org/releases/lzip/lzip-1.25.tar.gz",
+      "dst": "lzip-1.25",
+      "bld": "gnu"
+    }
+  },
+  "gnu-coreutils": {
+    "9.6": {
+      "src": "https://ftp.gnu.org/gnu/coreutils/coreutils-9.6.tar.gz",
+      "dst": "coreutils-9.6",
+      "bld": "gnu"
+    }
+  },
+  "gnu-ed": {
+    "1.21.0": {
+      "src": "https://ftp.wayne.edu/gnu/ed/ed-1.21.1.tar.lz",
+      "dst": "ed-1.21.1",
+      "bld": "gnu"
+    }
+  },
+  "gnu-spell": {
+    "1.1": {
+      "src": "https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz",
+      "dst": "spell-1.1",
+      "bld": "gnu"
+    }
+  }
+}
