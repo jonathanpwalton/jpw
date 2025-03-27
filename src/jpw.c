@@ -1,5 +1,6 @@
 #include "jpw.h"
 #include "jpw-update.h"
+#include "jpw-list.h"
 
 static const struct {
   char const * const prg;
@@ -31,10 +32,13 @@ int main (int argc, char ** argv) {
     fprintf(stdout,
       "commands:\n"
       "  update {all | available | installed}   fetches updates according to the provided argument\n"
+      "  list {available | installed}           list the packages according to the provided argument\n"
       "  help                                   display this help text and exit\n"
     );
   } else if (strcmp(argv[1], "update") == 0) {
-    update(argc, argv);
+    jpw_update(argc, argv);
+  } else if (strcmp(argv[1], "list") == 0) {
+    jpw_list(argc, argv);
   } else {
     fprintf(stderr, "error: command '%s' not recognized, try '%s help' for more information\n", argv[1], argv[0]);
   }

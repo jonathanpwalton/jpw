@@ -3,7 +3,7 @@
 void update_available();
 void update_installed();
 
-void update (int argc, char ** argv) {
+void jpw_update (int argc, char ** argv) {
   if (argc != 3) {
     fprintf(stderr, "error: command 'update' requires exactly one of the following arguments: {all | available | installed}\n");
     exit(1);
@@ -34,8 +34,7 @@ void update (int argc, char ** argv) {
   } else if (strcmp(argv[2], "installed") == 0) {
     update_installed();
   } else {
-    fprintf(stderr, "error: argument '%s' is not valid for command 'update', see '%s help' for more information\n", argv[2], argv[0]);
-    exit(1);
+    invalid_argument(argv[0], argv[1], argv[2]);
   }
 }
 

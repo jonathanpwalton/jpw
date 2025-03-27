@@ -1,5 +1,7 @@
 #pragma once
 
+#define _GNU_SOURCE
+#include <ctype.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <curl/curl.h>
@@ -8,6 +10,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <math.h>
+#include <stdio.h>
 
 static char const * const DIR = "/var/lib/jpw";
 static char const * const DBA = "/var/lib/jpw/available";
@@ -18,6 +21,11 @@ static int const ERR_FILE_OPEN=2;
 static int const ERR_CURL_NOOK=3;
 static int const ERR_FILE_SIZE=4;
 static int const ERR_HTTP_N200=5;
+
+static inline void invalid_argument (char * exe, char * command, char * argument) {
+  fprintf(stderr, "error: argument '%s' is not valid for command '%s', see '%s help' for more information\n", argument, command, exe);
+  exit(1);
+}
 
 static inline char const * gnu_basename (char const * const path) {
   char *base = strrchr(path, '/');

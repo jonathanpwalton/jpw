@@ -2,4 +2,4 @@
 
 #include "jpw.h"
 
-void update (int argc, char ** argv);
+void jpw_update (int argc, char ** argv);
