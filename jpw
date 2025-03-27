@@ -202,7 +202,7 @@ function staged::install {
         fail "building '$bld' is not implemented"
     esac
 
-    sed "s/^#REPLACEME/\"$pkg\") case \"\$2\" in \"\") exit 0;; ver) printf \"%q\" $(printf "%q" "$ver"); exit 0;; cfg) printf \"%q\" $(printf "%q" "$cfg"); exit 0;; upg) exit $upg;; esac; exit 0;;\\n#REPLACEME/g" -i $DBI
+    sed "s/^#REPLACEME/\"$pkg\") case \"\$2\" in ver) printf \"%q\" $(printf "%q" "$ver"); exit 0;; cfg) printf \"%q\" $(printf "%q" "$cfg"); exit 0;; upg) exit $upg;; esac; exit 0;;\\n#REPLACEME/g" -i $DBI
   done
 }
 
