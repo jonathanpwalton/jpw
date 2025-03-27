@@ -1,250 +1,66 @@
 #!/usr/bin/env bash
 
-WORKSPACE="/usr/share/jpw"
-WORKER="jpw-worker"
-AVAILABLE_DB="$WORKSPACE/.available"
-INSTALLED_DB="$WORKSPACE/.installed"
+readonly JPW="/var/lib/jpw"
+readonly PKG="$JPW/pkg"
+readonly DBA="$JPW/available"
+readonly DBI="$JPW/installed"
 
-PRG="jpw"
-PRG_VER="2025.03.26"
-PRG_DSC="a simplicity-focused bash-based package manager for GNU/Linux"
-PRG_CMD="$1"; shift
-
-download(){
-  if [[ -n $2 ]]; then
-    wget "$1" -q --show-progress --progress=bar:force:noscroll --no-cache -O "$2"
-  else
-    wget "$1" -q --show-progress --progress=bar:force:noscroll --no-cache
-  fi
-
-  case $? in
-    4 )
-      echo "error: network failure"
-      exit 1;;
-    8 )
-      echo "error: failed to retrieve $1";
-      exit 1;;
-  esac
+function rooted {
+  return $(( EUID == 0 ? 0 : 1 ))
 }
 
-require_root() {
-  if [[ $EUID = 0 ]]; then return; fi
-  echo "error: cannot perform '$PRG_CMD' without root privelege"
+function warn {
+  echo "warning: $1"
+}
+
+function fail {
+  echo "error: $1"
   exit 1
 }
 
-enlist_worker(){
-  require_root
-	useradd -M "$WORKER"
-}
-
-direct_worker(){ # cmd
-  require_root
-	su "$WORKER" -c "$1"	
-}
-
-retire_worker(){
-  require_root
-	userdel -f "$WORKER"
-}
-
-list_available_package_names(){
-  if [[ ! -e $AVAILABLE_DB ]]; then return; fi
-  sed -E -e s/^name=//g -e s/\\s.+//g $AVAILABLE_DB
-}
-
-list_installed_package_names(){
-  if [[ ! -e $INSTALLED_DB ]]; then return; fi
-  grep -E ^pkg= $INSTALLED_DB | sed -E s/^pkg=//g
-}
-
-update_available_packages(){
-  require_root
-
-  mkdir -p $WORKSPACE
-  cd $WORKSPACE || exit 1
-  rm -f $AVAILABLE_DB
-  download https://raw.githubusercontent.com/jonathanpwalton/jpw/main/.available
-}
-
-is_package_available(){
-  if [[ ! -e $AVAILABLE_DB ]]; then
-    return 1
+function download {
+  if [[ -n $2 ]]; 
+    then wget "$1" -q --show-progress --progress=bar:force:noscroll --no-cache -O "$2"
+    else wget "$1" -q --show-progress --progress=bar:force:noscroll --no-cache
   fi
 
-  grep -q -E name="$1"\\s $AVAILABLE_DB
-  return $?
+  case $? in
+    4 ) fail "network failure" ;;
+    8 ) fail "failed to retrieve $1" ;;
+  esac
 }
 
-is_version_available(){
-  if ! is_package_available "$1"; then
-    return 1
-  elif [[ $2 = latest ]]; then
-    return 0;
+function cmd::help {
+  echo "jpw 2025.03.27, a coreutils-based package manager for GNU/Linux"
+  echo
+  echo "usage: $program <command>"
+  echo
+  echo "commands:"
+  echo "  help          display this help text and quit"
+  exit 0
+}
+
+function cmd::update {
+  if ! rooted; then
+    fail "cannot update without root privilege"
   fi
 
-  grep -E name="$1"\\s $AVAILABLE_DB | sed -E s/name="$1"\\s+latest=\\S+\\s+//g | grep -q -E "$2=\[.*\]"
-  return $?
+  download https://raw.githubusercontent.com/jonathanpwalton/jpw/main/available $DBA
 }
 
-is_package_installed(){
-  if ! [[ -e $INSTALLED_DB ]]; then
-    return 1
+function main () {
+  local program=$0
+  local command=$1; shift
+
+  if rooted; then
+    mkdir -p $PKG
   fi
 
-  grep -q -E name="$1"\\s $INSTALLED_DB
-  return $?
+  case "$command" in
+    update ) cmd::update "$@" ;;
+    help ) cmd::help "$@" ;;
+    * ) fail "missing or invalid command, see '$program help' for more information" ;;
+  esac
 }
 
-get_installed_version(){
-  _installed_version_=$(grep -E name="$1"\\s $INSTALLED_DB | grep -E -o version=\\S+)
-  echo "${_installed_version_:8}"
-}
-
-get_latest_available(){
-  _latest_available_=$(grep -E name="$1"\\s /usr/share/jpw/.available | grep -E -o latest=\\S+)
-  echo "${_latest_available_:7}"
-}
-
-add_installation_target(){
-  require_root
-  cd $WORKSPACE || exit 1
-
-  if [[ $2 = latest ]]; then
-    _installation_upgradeable_="true"
-    set -- "$1" "$(get_latest_available "$1")" "$3"
-  else
-    _installation_upgradeable_="false"
-  fi
-
-  printf "%s\n%s\n%s\n%s\n" "$1" "$2" "$3" "$_installation_upgradeable_" >> .installation
-}
-
-add_removal_target(){
-  require_root
-  cd $WORKSPACE || exit 1
-  echo "$1" >> .removal
-}
-
-install_targets(){
-  if [[ ! -e $WORKSPACE/.installation ]]; then return; fi
-
-  require_root
-  mapfile -t targets < $WORKSPACE/.installation; rm -f $WORKSPACE/.installation
-
-  for ((i=0; i < ${#targets[@]}; i+=4)); do
-    pkg=${targets[($i + 0)]}
-    ver=${targets[($i + 1)]}
-    cfg=${targets[($i + 2)]}
-    upg=${targets[($i + 3)]}
-
-    src=$(grep -E name="$pkg"\\s $AVAILABLE_DB | grep -E -o "$ver"="\[.*\]" | grep -E -o src=\\S+ | sed -E s/src=//g)
-    dst=$(grep -E name="$pkg"\\s $AVAILABLE_DB | grep -E -o "$ver"="\[.*\]" | grep -E -o dst=\\S+ | sed -E s/dst=//g)
-    bld=$(grep -E name="$pkg"\\s $AVAILABLE_DB | grep -E -o "$ver"="\[.*\]" | grep -E -o bld=\\S+ | sed -E s/bld=//g)
-
-    if [[ -z $src ]] || [[ -z $dst ]] || [[ -z $bld ]]; then
-      echo "warning: cannot install package '$pkg' version '$ver' because of invalid version formatting in the database"
-      continue
-    fi
-
-    mkdir -p $WORKSPACE/"$pkg"
-    cd "$WORKSPACE/$pkg" || exit 1
-    download "$src"
-    tar xf "$(basename "$src")"
-    rm -f "$(basename "$src")"
-    cd "$WORKSPACE/$pkg/$dst" || exit 1
-
-    case "$bld" in "") exit 1
-      ;; GNU )
-        enlist_worker
-
-        chown -R $WORKER "$WORKSPACE/$pkg"
-        direct_worker "./configure $cfg"
-        direct_worker "make"
-        make install
-        direct_worker "make clean"
-        chown -R root "$WORKSPACE/$pkg"
-        
-        retire_worker
-      ;; * )
-        echo "error: $bld building is not implemented"
-        exit 1
-    esac
-
-    printf "pkg=%s\nver=%s\ncfg=%s\nupg=%s\n" "$pkg" "$ver" "$cfg" "$upg" >> $WORKSPACE/.installed
-  done
-}
-
-remove_targets(){
-  if [[ ! -e $WORKSPACE/.removal ]]; then return; fi
-
-  require_root
-  mapfile -t targets < $WORKSPACE/.removal; rm -f $WORKSPACE/.removal
-  unimplemented; exit 1
-}
-
-case "$PRG_CMD" in "" ) printf "error: a command is required, try '%s help' for more information\n" "$1"; exit 1
-  ;; update )
-    require_root
-
-    update_available_packages
-    exit 0
-  ;; install )
-    require_root
-
-    while (("$#")); do
-      pkg=$1; shift
-      if [[ $1 = -v ]]; then shift; ver=$1; shift; else ver="latest"; fi
-      if [[ $1 = -c ]]; then shift; cfg=$1; shift; else cfg=""; fi
-
-      if ! is_package_available "$pkg"; then
-        echo "warning: package '$pkg' is not available, skipping"
-        continue
-      elif ! is_version_available "$pkg" "$ver"; then
-        echo "warning: version '$ver' of package '$pkg' is not available, skipping"
-        continue
-      elif is_package_installed "$pkg"; then
-        echo "warning: package '$pkg' version '$(get_installed_version "$pkg")' is installed, remove and replace? [Y] "
-        read -r answer
-
-        if [[ -z $answer ]] || [[ ${answer,,} = "y" ]] || [[ ${answer,,} = "yes" ]]; then
-          add_removal_target "$pkg"
-        else
-          continue
-        fi
-      fi
-      
-      add_installation_target "$pkg" "$ver" "$cfg"
-    done
-
-    remove_targets
-    install_targets
-    exit 0
-  ;; list )
-    case "$1" in
-      available )
-        list_available_package_names
-        exit 0
-      ;; installed )
-        list_installed_package_names
-        exit 0
-      ;; * )
-        printf "error: the '%s' command requires one of the following operands: {installed | available}\n" "$PRG_CMD"
-        exit 1
-    esac
-  ;; help | -h | --help )
-    echo "$PRG $PRG_VER, $PRG_DSC"
-    echo
-    echo "usage: $0 <command>"
-    echo
-    echo "commands:"
-    echo "  update                                                fetch the latest database of available packages"
-    echo "  upgrade                                               perform upgrade of all packages marked for upgrading"
-    echo "  install [package [-v <version>] [-c <config>] ...]    build and install package(s)"
-    echo "  remove [package ...]                                  uninstall and remove package(s) and files"
-    echo "  list {installed | available}                          print a list of package names"
-    exit 0
-  ;; * )
-    printf "error: '%s' is not a valid command, try '%s help' for more information\n" "$PRG_CMD" "$0"
-    exit 1
-esac
+main "$@"

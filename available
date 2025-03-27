@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+function jpw::pkg::wget2 {
+  case $1 in
+    "" )
+      echo "2.2.0" ;;
+    2.2.0 )
+      case $2 in
+        src ) echo "https://ftp.gnu.org/gnu/wget/wget2-2.2.0.tar.gz" ;;
+        dst ) echo "wget2-2.2.0" ;;
+        bld ) echo "gnu" ;;
+      esac ;;
+    * )
+      exit 1 ;;
+  esac
+}
+
+function jpw::pkg::lzip {
+  case $1 in
+    "" )
+      echo "1.25" ;;
+    1.25 )
+      case $2 in
+        src ) echo "https://download.savannah.gnu.org/releases/lzip/lzip-1.25.tar.gz" ;;
+        dst ) echo "lzip-1.25" ;;
+        bld ) echo "gnu" ;;
+      esac ;;
+    * )
+      exit 1 ;;
+  esac
+}
+
+function jpw::pkg::gnu-coreutils {
+  case $1 in
+    "" )
+      echo "9.6" ;;
+    9.6 )
+      case $2 in
+        src ) echo "https://ftp.gnu.org/gnu/coreutils/coreutils-9.6.tar.gz" ;;
+        dst ) echo "coreutils-9.6" ;;
+        bld ) echo "gnu" ;;
+      esac ;;
+    * )
+      exit 1 ;;
+  esac
+}
+
+function jpw::pkg::gnu-ed {
+  case $1 in
+    "" )
+      echo "1.21.1" ;;
+    1.21.1 )
+      case $2 in
+        src ) echo "https://ftp.wayne.edu/gnu/ed/ed-1.21.1.tar.lz" ;;
+        dst ) echo "ed-1.21.1" ;;
+        bld ) echo "gnu" ;;
+      esac ;;
+    * )
+      exit 1 ;;
+  esac
+}
+
+function jpw::pkg::gnu-spell {
+  case $1 in
+    "" )
+      echo "1.1" ;;
+    1.1 )
+      case $2 in
+        src ) echo "https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz" ;;
+        dst ) echo "spell-1.1" ;;
+        bld ) echo "gnu" ;;
+      esac ;;
+    * )
+      exit 1 ;;
+  esac
+}
+
+if declare -f jpw::pkg::"$1" > /dev/null; then
+  eval "jpw::pkg::$*" && exit 0
+else
+  exit 1
+fi
