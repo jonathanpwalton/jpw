@@ -52,16 +52,8 @@ function cmd::install {
 
   while (($#)); do
     local pkg=$1; shift
-    local ver="latest";
-    local cfg="";
-
-    if [[ $1 = -v ]]; then shift; ver=$1; shift; fi
-    if [[ $1 = -c ]]; then shift; cfg=$1; shift; fi
-
-    if ! cmd::list "available" | grep -E -q "^$pkg$"; then
-      warn "'$pkg' is not available, skipping"
-      continue
-    fi
+    if [[ $1 = -v ]]; then shift; local ver=$1; shift; else local ver="latest"; fi
+    if [[ $1 = -c ]]; then shift; local cfg=$1; shift; else local cfg=""; fi
 
     fail
   done
@@ -69,7 +61,7 @@ function cmd::install {
 
 function cmd::list {
   if [[ $1 = "available" ]]; then
-    grep -E "^function jpw::pkg::\\S+ {$" $DBA | sed -E -e "s/^function jpw::pkg:://g" -e "s/ \{$//g"
+    grep -E ": 'pkg'" $DBA | grep -E -o "\S+)" | sed -E "s/\)//g"
   else
     fail "list requires one of the following operands: {available | installed}"
   fi
