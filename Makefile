@@ -1,19 +1,16 @@
-CC=gcc
-CFLAGS=-std=c99 -Wall -Wextra -pedantic
-CLIBS=-lcurl -lm
+CPP=g++
+CPPFLAGS=-std=c++11 -Wall -Wextra -pedantic
+CPPLIBS=-lcurl
 prefix=/usr/local
 
-bld/jpw: bld/tmp/jpw.o bld/tmp/jpw-update.o bld/tmp/jpw-list.o
-	gcc -o bld/jpw bld/tmp/jpw.o bld/tmp/jpw-update.o bld/tmp/jpw-list.o $(CLIBS)
+bld/jpw: bld/tmp/jpw.o bld/tmp/curl.o
+	$(CPP) -o bld/jpw bld/tmp/jpw.o bld/tmp/curl.o $(CPPLIBS)
 
-bld/tmp/jpw.o: bld/tmp src/jpw.c src/jpw.h
-	$(CC) $(CFLAGS) -c -o bld/tmp/jpw.o src/jpw.c $(CLIBS)
+bld/tmp/curl.o: bld/tmp src/curl.cpp src/curl.hpp
+	$(CPP) $(CPPFLAGS) -c -o bld/tmp/curl.o src/curl.cpp
 
-bld/tmp/jpw-update.o: bld/tmp src/jpw-update.c src/jpw-update.h
-	$(CC) $(CFLAGS) -c -o bld/tmp/jpw-update.o src/jpw-update.c $(CLIBS)
-
-bld/tmp/jpw-list.o: bld/tmp src/jpw-list.c src/jpw-list.h
-	$(CC) $(CFLAGS) -c -o bld/tmp/jpw-list.o src/jpw-list.c $(CLIBS)
+bld/tmp/jpw.o: bld/tmp src/jpw.cpp src/jpw.hpp
+	$(CPP) $(CPPFLAGS) -c -o bld/tmp/jpw.o src/jpw.cpp
 
 bld/tmp:
 	mkdir -p bld/tmp
