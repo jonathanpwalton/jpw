@@ -49,6 +49,21 @@ int main(int argc, char ** argv) {
     "  install {<package> [-v <version>] [-c <config>] ...}   install one or more packages\n" <<
     "  list {available | installed}                           list available or installed packages\n" <<
     "  help                                                   display this help text and quit\n";
+  } else if (args[1] == "list") {
+    if (args.size() != 3 || (args[2] != "available" && args[2] != "installed")) {
+      std::cerr << "error: command 'list' requires exactly one argument of {available | installed}\n";
+      return 1;
+    } else if (args[2] == "available") {
+      json available = access(DBA, F_OK) == 0 ? json::parse(std::ifstream(DBA)) : json::parse("{}");
+
+      for (auto & package : available.items())
+        std::cout << package.key() << '\n';
+    } else if (args[2] == "installed") {
+      json installed = access(DBI, F_OK) == 0 ? json::parse(std::ifstream(DBI)) : json::parse("{}");
+
+      for (auto & package : installed.items())
+        std::cout << package.key() << '\n';
+    }
   } else if (args[1] == "update") {
     require_root();
     mkdirs();

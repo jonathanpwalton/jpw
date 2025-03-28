@@ -18,7 +18,6 @@ bld/tmp:
 .PHONY: clean
 clean:
 	rm -rf bld
-	rm -rf bld/tmp
 
 .PHONY: install
 install:
