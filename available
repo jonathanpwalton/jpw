@@ -1,0 +1,25 @@
+wget2
+  2.2.0
+    https://ftp.gnu.org/gnu/wget/wget2-2.2.0.tar.gz
+    wget2-2.2.0
+    gnu
+lzip
+  1.25
+    https://download.savannah.gnu.org/releases/lzip/lzip-1.25.tar.gz
+    lzip-1.2
+    gnu
+gnu-coreutils
+  9.6
+    https://ftp.gnu.org/gnu/coreutils/coreutils-9.6.tar.gz
+    coreutils-9.6
+    gnu
+gnu-ed
+  1.21.0
+    https://ftp.wayne.edu/gnu/ed/ed-1.21.1.tar.lz
+    ed-1.21.1
+    gnu
+gnu-spell
+  1.1
+    https://ftp.gnu.org/gnu/spell/spell-1.1.tar.gz
+    spell-1.1
+    gnu
