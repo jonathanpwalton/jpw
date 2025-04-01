@@ -21,6 +21,7 @@ declare -r ProgramName="jpw"
 declare -r ProgramVersion="20250331"
 declare -r ProgramDescription="A coreutils-powered package manager for GNU/Linux"
 declare -r ProgramDirectory="/var/lib/jpw"
+declare -r PackageDirectory="$ProgramDirectory/packages"
 declare -r DatabaseAvailable="$ProgramDirectory/available"
 declare -r DatabaseInstalled="$ProgramDirectory/installed"
 
@@ -73,47 +74,17 @@ function main {
   elif test "$1" = install; then
     if test $# = 1; then
       command_error install "requires one or more package names as arguments"
+    else
+      root_command install
+
+      if ! test -e $DatabaseAvailable; then
+        error "the local database of available packages has not been initialized, run '$(bold "jpw update available")' first"
+      else
+        shift
+        install "$@"
+        exit 0
+      fi
     fi
-
-    shift
-
-    while (($#)); do
-      local pkg=$1
-      shift
-
-      if test "$pkg" != "$(printf "%q" "$pkg")"; then
-        error "cannot install '$pkg' as it is not a valid package name"
-      elif ! grep -Eq "^$pkg$" $DatabaseAvailable; then
-        error "package '$pkg' not found in the local database of available packages"
-      fi
-
-      local ver=latest
-      if echo "$1" | grep -q '\-v'; then
-        shift
-
-        if test $# = 0; then
-          error "the option '$(bold -v)' (for package '$pkg') requires an argument in the format '-v <version>'"
-        else
-          ver="$1"
-          shift
-        fi
-      fi
-
-      local cfg=""
-      if echo "$1" | grep -q '\-c'; then
-        shift
-
-        if test $# = 0; then
-          error "the option '$(bold -c)' (for package '$pkg') requires an argument in the format '-c <config>'"
-        else
-          cfg="$1"
-          shift
-        fi
-      fi
-
-    done
-
-    exit 0
   fi
   
   error "the command '$(bold "$*")' was not recognized, see '$(bold "$SRC help")' for more information"
@@ -135,6 +106,113 @@ function update_available {
 function update_installed {
   root_command update
   unimplemented
+}
+
+function install {
+  mkdir -p $PackageDirectory
+
+  local -a staging
+
+  while (($#)); do
+    local pkg=$1
+    shift
+
+    if test "$pkg" != "$(printf "%q" "$pkg")"; then
+      error "cannot install '$pkg' as it is not a valid package name"
+    elif ! grep -Eq "^$pkg$" $DatabaseAvailable; then
+      error "package '$pkg' not found in the local database of available packages"
+    else
+      local Package
+      Package=$(grep -Pzo "\n$pkg\n( +\S*\n)+" $DatabaseAvailable | tr '\0' '\n' | awk 'NF')
+
+      local Versions
+      Versions=$(echo "$Package" | grep -E "^  \S+$" | sed 's/^  //g')
+    fi
+
+    local ver=latest
+    if echo "$1" | grep -q '\-v'; then
+      shift
+
+      if test $# = 0; then
+        error "the option '$(bold -v)' (for package '$pkg') requires an argument in the format '-v <version>'"
+      else
+        ver="$1"
+        shift
+      fi
+
+      if ! echo "$Versions" | grep -Eq "^$ver$"; then
+        error "version '$ver' for package '$pkg' not found in the local database of available packages"
+      fi
+    fi
+
+    if test "$ver" = latest; then
+      ver=$(echo "$Versions" | head -1)
+    fi
+
+    local cfg=""
+    if echo "$1" | grep -q '\-c'; then
+      shift
+
+      if test $# = 0; then
+        error "the option '$(bold -c)' (for package '$pkg') requires an argument in the format '-c <config>'"
+      else
+        cfg="$1"
+        shift
+      fi
+    fi
+
+    local -a Lines
+    readarray -t Lines <<< "$(echo "$Package" | grep -Pzo "\n  $ver\n(    \S+\n)+" | sed -E 's/^\s+//g' | tr '\0' '\n' | awk 'NF')"
+    
+    staging+=("$pkg")
+    staging+=("${Lines[@]}")
+    staging+=("$cfg")
+  done
+
+  local -i i
+  for ((i=0; i < ${#staging[@]}; i+=6)); do
+    local pkg="${staging[(($i + 0))]}"
+    local ver="${staging[(($i + 1))]}"
+    local src="${staging[(($i + 2))]}"
+    local dst="${staging[(($i + 3))]}"
+    local bld="${staging[(($i + 4))]}"
+    local cfg="${staging[(($i + 5))]}"
+
+    mkdir "$PackageDirectory/$pkg"
+    cd "$PackageDirectory/$pkg"
+
+    if ! wget -q --show-progress --no-cache "$src"; then
+      warn "in installation of package '$pkg' failed to retrieve source, skipping"
+      continue
+    fi
+
+    case "$bld" in
+      gnu )
+        if ! tar xf "$(basename "$src")"; then
+          warn "in installation of package '$pkg' failed to extract source, skipping"
+          continue
+        else
+          rm "$(basename "$src")"
+        fi
+
+        local worker
+        worker="jpw-worker$(cat /proc/sys/kernel/random/uuid)"
+      
+        useradd -M "$worker"
+        chown -R "$worker" "$PackageDirectory/$pkg/$dst"
+        cd "$PackageDirectory/$pkg/$dst"
+        su -c "./configure $cfg" "$worker"
+        su -c "make" "$worker"
+        make install
+        su -c "make clean" "$worker"
+        chown -R $EUID "$PackageDirectory/$pkg/$dst"
+        userdel "$worker"
+      ;;
+      * )
+        error "$bld unimplemented"
+      ;;
+    esac
+  done
 }
 
 function supports {
@@ -160,6 +238,10 @@ function underline {
 function error {
   echo "$(bold Error): $1"
   exit 1
+}
+
+function warn {
+  echo "$(bold Warning): $1"
 }
 
 function command_error {

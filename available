@@ -7,7 +7,7 @@ wget2
 lzip
   1.25
     https://download.savannah.gnu.org/releases/lzip/lzip-1.25.tar.gz
-    lzip-1.2
+    lzip-1.25
     gnu
 gnu-coreutils
   9.6
