@@ -1,38 +1,35 @@
 #!/usr/bin/env bash
 
+# Copyright (C) 2025 Jonathan Walton
+# 
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 set -e
 
 declare -r ProgramName="jpw"
 declare -r ProgramVersion="20250331"
-declare -r ProgramDescription="A bash-powered package manager for GNU/Linux"
-
-function bold {
-  if tput sgr0; then
-    echo "$(tput bold)$1$(tput sgr0)"
-  else
-    echo "$1"
-  fi
-}
-
-function underline {
-  if tput sgr0; then
-    echo "$(tput smul)$1$(tput rmul)"
-  else
-    echo "$1"
-  fi
-}
-
-function error {
-  echo "$(bold Error): $1"
-  exit 1
-}
+declare -r ProgramDescription="A coreutils-powered package manager for GNU/Linux"
+declare -r ProgramDirectory="/var/lib/jpw"
+declare -r DatabaseAvailable="$ProgramDirectory/available"
+declare -r DatabaseInstalled="$ProgramDirectory/installed"
 
 function main {
   local -r SRC="$(basename "$0")"
 
   if test $# = 0; then
     error "a command must be supplied, see '$(bold "$SRC help")' for more information"
-  elif test "$1" = "help" || test "$1" = "-h" || test "$1" = "--help"; then
+  elif test "$1" = help || test "$1" = -h || test "$1" = --help; then
     if test $# != 1; then
       echo "Error: the '$1' command does not take any arguments, see '$(bold "$SRC help")' for more information"
       exit 1
@@ -50,8 +47,128 @@ function main {
     echo "  $(bold list) {available | installed}                            Display all available or installed packages"
     echo "  $(bold help)                                                    Display this help text and exit"
     exit 0
+  elif test "$1" = update; then
+    if test $# = 1; then
+      update_available
+      update_installed
+      exit 0
+    elif test $# = 2 && test "$2" = available; then
+      update_available
+      exit 0
+    elif test $# = 2 && test "$2" = installed; then
+      update_installed
+      exit 0
+    fi
+  elif test "$1" = list; then
+    if test $# != 2; then
+      command_error list "requires exactly one argument of {available | installed}"
+    elif test "$2" = available; then
+      if ! test -e $DatabaseAvailable; then
+        error "the local database of available packages has not been initialized, run '$(bold "jpw update available")' first"
+      fi
+
+      grep -E '^\S+$' $DatabaseAvailable
+      exit 0
+    fi
+  elif test "$1" = install; then
+    if test $# = 1; then
+      command_error install "requires one or more package names as arguments"
+    fi
+
+    shift
+
+    while (($#)); do
+      local pkg=$1
+      shift
+
+      if test "$pkg" != "$(printf "%q" "$pkg")"; then
+        error "cannot install '$pkg' as it is not a valid package name"
+      elif ! grep -Eq "^$pkg$" $DatabaseAvailable; then
+        error "package '$pkg' not found in the local database of available packages"
+      fi
+
+      local ver=latest
+      if echo "$1" | grep -q '\-v'; then
+        shift
+
+        if test $# = 0; then
+          error "the option '$(bold -v)' (for package '$pkg') requires an argument in the format '-v <version>'"
+        else
+          ver="$1"
+          shift
+        fi
+      fi
+
+      local cfg=""
+      if echo "$1" | grep -q '\-c'; then
+        shift
+
+        if test $# = 0; then
+          error "the option '$(bold -c)' (for package '$pkg') requires an argument in the format '-c <config>'"
+        else
+          cfg="$1"
+          shift
+        fi
+      fi
+
+    done
+
+    exit 0
+  fi
+  
+  error "the command '$(bold "$*")' was not recognized, see '$(bold "$SRC help")' for more information"
+}
+
+function update_available {
+  root_command update
+
+  if test -e $DatabaseAvailable; then
+    rm $DatabaseAvailable
+  elif ! test -e $ProgramDirectory; then
+    mkdir -p $ProgramDirectory
+  fi
+
+  cd $ProgramDirectory
+  wget -q --show-progress --no-cache https://raw.githubusercontent.com/jonathanpwalton/jpw/main/available
+}
+
+function update_installed {
+  root_command update
+  unimplemented
+}
+
+function supports {
+  command -v "$1" > /dev/null 2>&1
+}
+
+function bold {
+  if supports tput; then
+    echo "$(tput bold)$1$(tput sgr0)"
   else
-    error "the command '$1' was not recognized, see '$(bold "$SRC help")' for more information"
+    echo "$1"
+  fi
+}
+
+function underline {
+  if supports tput; then
+    echo "$(tput smul)$1$(tput rmul)"
+  else
+    echo "$1"
+  fi
+}
+
+function error {
+  echo "$(bold Error): $1"
+  exit 1
+}
+
+function command_error {
+  error "the command '$(bold "$1")' $2"
+}
+
+function root_command {
+  if ! test -w /; then
+    command_error "$1" "requires root access"
   fi
 }
 
