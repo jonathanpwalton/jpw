@@ -25,111 +25,124 @@ declare -r InstalledDirectory="$ProgramDirectory/installed"
 declare -r AvailableDirectory="$ProgramDirectory/available"
 
 function main {
-  local -r SRC="$(basename "$0")"
+  local -r Program="$(basename "$0")"
+  local -r Kernel="$(uname -s)"
 
-  if test $# = 0; then
-    error "a command must be supplied, see '$(bold "$SRC help")' for more information"
-  elif test "$1" = help || test "$1" = -h || test "$1" = --help; then
-    if test $# != 1; then
-      echo "Error: the '$1' command does not take any arguments, see '$(bold "$SRC help")' for more information"
-      exit 1
-    fi
+  if [[ $Kernel != Linux  ]]; then
+    error "$(bold "$Program") is only designed for use on Linux systems"
+  elif [[ $# = 0  ]]; then
+    error "a command must be supplied, see '$(bold "$Program help")' for more information"
+  fi
 
-    bold "$ProgramName $ProgramVersion"
-    echo "$ProgramDescription"
-    echo
-    echo "$(underline "$(bold Usage)"): $(bold "$SRC") <command>"
-    echo
-    echo "$(underline "$(bold Commands)"):"
-    echo "  $(bold update) [available | installed]                          Update available, installed, or all packages"
-    echo "  $(bold install) {<package> [-v <version>] [-c <config>] ...}    Fetch and install one or more packages"
-    echo "  $(bold remove) {<package> ...}                                  Uninstall and remove one or more packages"
-    echo "  $(bold list) {available | installed}                            Display all available or installed packages"
-    echo "  $(bold help)                                                    Display this help text and exit"
-    exit 0
-  elif test "$1" = update; then
-    if test $# = 1; then
-      update_available
-      update_installed
-      exit 0
-    elif test $# = 2 && test "$2" = available; then
-      update_available
-      exit 0
-    elif test $# = 2 && test "$2" = installed; then
-      update_installed
-      exit 0
-    fi
-  elif test "$1" = list; then
-    if test $# != 2; then
-      command_error list "requires exactly one argument of {available | installed}"
-    elif test "$2" = available; then
-      if ! test -d $AvailableDirectory; then
-        error "the local database of available packages has not been initialized, run '$(bold "jpw update available")' first"
+  case "$1" in
+    help | -h | --help )
+      if [[ $# != 1  ]]; then
+        echo "Error: the '$1' command does not take any arguments, see '$(bold "$Program help")' for more information"
+        exit 1
       fi
 
-      ls -w 1 $AvailableDirectory
+      bold "$ProgramName $ProgramVersion"
+      echo "$ProgramDescription"
+      echo
+      echo "$(underline "$(bold Usage)"): $(bold "$Program") <command>"
+      echo
+      echo "$(underline "$(bold Commands)"):"
+      echo "  $(bold update) [available | installed]                          Update available, installed, or all packages"
+      echo "  $(bold install) {<package> [-v <version>] [-c <config>] ...}    Fetch and install one or more packages"
+      echo "  $(bold remove) {<package> ...}                                  Uninstall and remove one or more packages"
+      echo "  $(bold list) {available | installed}                            Display all available or installed packages"
+      echo "  $(bold help)                                                    Display this help text and exit"
       exit 0
-    elif test "$2" = installed; then
-      if test -e $InstalledDirectory; then
-        ls -w 1 $InstalledDirectory
-      fi
-
-      exit 0
-    fi
-  elif test "$1" = install; then
-    if test $# = 1; then
-      command_error install "requires one or more package names as arguments"
-    else
-      root_command install
-
-      if ! test -d $AvailableDirectory; then
-        error "the local database of available packages has not been initialized, run '$(bold "jpw update available")' first"
-      else
-        shift
-        install "$@"
+    ;;
+    update )
+      if [[ $# = 1  ]]; then
+        update_available
+        update_installed
         exit 0
+      elif [[ $# = 2 && $2 = available  ]]; then
+        update_available
+        exit 0
+      elif [[ $# = 2 && $2 = installed  ]]; then
+        update_installed
+        exit 0
+      else
+        command_error update "requires zero or exactly one argument of {available | installed}"
       fi
-    fi
-  elif test "$1" = remove; then
-    root_command remove
-
-    if test $# = 1; then
-      command_error remove "requires one or more package names as arguments"
-    else
-      shift
-
-      while (($#)); do
-        if test -z "$1"; then
-          shift
-          continue
-        elif test "${1:0:1}" = '.'; then
-          warn "package names may not begin with a period, skipping '$1'"
-          shift
-          continue
-        elif ! test -e "$InstalledDirectory/$1/uninstall"; then
-          warn "package '$1' not installed, skipping"
-          shift
-          continue
+    ;;
+    list )
+      if [[ $# != 2  ]]; then
+        command_error list "requires exactly one argument of {available | installed}"
+      elif [[ $2 = available  ]]; then
+        if ! [[ -d $AvailableDirectory  ]]; then
+          error "the local database of available packages has not been initialized, run '$(bold "jpw update available")' first"
         fi
 
-        "$InstalledDirectory/$1/uninstall"
-        rm -rf "$InstalledDirectory/${1:?}"
+        ls -w 1 $AvailableDirectory
+        exit 0
+      elif [[ $2 = installed  ]]; then
+        if [[ -e $InstalledDirectory  ]]; then
+          ls -w 1 $InstalledDirectory
+        fi
 
+        exit 0
+      fi
+    ;;
+    install )
+      if [[ $# = 1  ]]; then
+        command_error install "requires one or more package names as arguments"
+      else
+        root_command install
+
+        if ! [[ -d $AvailableDirectory  ]]; then
+          error "the local database of available packages has not been initialized, run '$(bold "jpw update available")' first"
+        else
+          shift
+          install "$@"
+          exit 0
+        fi
+      fi
+    ;;
+    remove )
+      root_command remove
+
+      if [[ $# = 1 ]]; then
+        command_error remove "requires one or more package names as arguments"
+      else
         shift
-      done
-      exit 0
-    fi
-  fi
+
+        while (($#)); do
+          if [[ -z "$1" ]]; then
+            shift
+            continue
+          elif [[ "${1:0:1}" = '.' ]]; then
+            warn "package names may not begin with a period, skipping '$1'"
+            shift
+            continue
+          elif ! [[ -e "$InstalledDirectory/$1/uninstall" ]]; then
+            warn "package '$1' not installed, skipping"
+            shift
+            continue
+          fi
+
+          "$InstalledDirectory/$1/uninstall"
+          rm -rf "$InstalledDirectory/${1:?}"
+
+          shift
+        done
+        exit 0
+      fi
+    ;;
+  esac
   
-  error "the command '$(bold "$*")' was not recognized, see '$(bold "$SRC help")' for more information"
+  error "the command '$(bold "$*")' was not recognized, see '$(bold "$Program help")' for more information"
 }
 
 function update_available {
   root_command update
 
-  if test -d $AvailableDirectory; then
+  if [[ -d $AvailableDirectory ]]; then
     rm -rf $AvailableDirectory
-  elif ! test -e $ProgramDirectory; then
+  elif ! [[ -e $ProgramDirectory ]]; then
     mkdir -p $ProgramDirectory
   fi
 
@@ -137,7 +150,7 @@ function update_available {
   wget -q --show-progress --no-cache https://github.com/jonathanpwalton/jpw-packages/archive/refs/heads/main.tar.gz -O available
   cd $ProgramDirectory
   tar xf /tmp/available
-  mv ./jpw-packages-main ./available
+  mv ./jpw-packages-main $AvailableDirectory
 }
 
 function update_installed {
@@ -146,7 +159,7 @@ function update_installed {
 }
 
 function install {
-  mkdir -p $PackageDirectory
+  mkdir -p $InstalledDirectory
 
   local -a staging
 
@@ -154,43 +167,35 @@ function install {
     local pkg=$1
     shift
 
-    if test "$pkg" != "$(printf "%q" "$pkg")"; then
+    if [[ "$pkg" != "$(printf "%q" "$pkg")" ]]; then
       error "cannot install '$pkg' as it is not a valid package name"
-    elif ! grep -Eq "^$pkg$" $DatabaseAvailable; then
+    elif ! [[ -d "$AvailableDirectory/$pkg" ]]; then
       error "package '$pkg' not found in the local database of available packages"
-    else
-      local Package
-      Package=$(grep -Pzo "\n$pkg\n( +\S*\n)+" $DatabaseAvailable | tr '\0' '\n' | awk 'NF')
-
-      local Versions
-      Versions=$(echo "$Package" | grep -E "^  \S+$" | sed 's/^  //g')
     fi
 
     local ver=latest
     if echo "$1" | grep -q '\-v'; then
       shift
 
-      if test $# = 0; then
+      if [[ $# = 0 ]]; then
         error "the option '$(bold -v)' (for package '$pkg') requires an argument in the format '-v <version>'"
       else
         ver="$1"
         shift
       fi
-
-      if ! echo "$Versions" | grep -Eq "^$ver$"; then
-        error "version '$ver' for package '$pkg' not found in the local database of available packages"
-      fi
+    else
+      ver=$(cat "$AvailableDirectory/$pkg/latest")
     fi
 
-    if test "$ver" = latest; then
-      ver=$(echo "$Versions" | head -1)
+    if ! [[ -d "$AvailableDirectory/$pkg/$ver" ]]; then
+      error "version '$ver' for package '$pkg' not found in the local database of available packages"
     fi
 
     local cfg=""
     if echo "$1" | grep -q '\-c'; then
       shift
 
-      if test $# = 0; then
+      if [[ $# = 0 ]]; then
         error "the option '$(bold -c)' (for package '$pkg') requires an argument in the format '-c <config>'"
       else
         cfg="$1"
@@ -198,57 +203,53 @@ function install {
       fi
     fi
 
-    local -a Lines
-    readarray -t Lines <<< "$(echo "$Package" | grep -Pzo "\n  $ver\n(    \S+\n)+" | sed -E 's/^\s+//g' | tr '\0' '\n' | awk 'NF')"
-    
-    staging+=("$pkg")
-    staging+=("${Lines[@]}")
-    staging+=("$cfg")
+    staging+=("$pkg" "$ver" "$cfg")
   done
 
   local -i i
-  for ((i=0; i < ${#staging[@]}; i+=6)); do
+  for ((i=0; i < ${#staging[@]}; i+=3)); do
     local pkg="${staging[(($i + 0))]}"
     local ver="${staging[(($i + 1))]}"
-    local src="${staging[(($i + 2))]}"
-    local dst="${staging[(($i + 3))]}"
-    local bld="${staging[(($i + 4))]}"
-    local cfg="${staging[(($i + 5))]}"
+    local cfg="${staging[(($i + 2))]}"
 
-    mkdir "$PackageDirectory/$pkg"
-    cd "$PackageDirectory/$pkg"
+    local dst bld
+    dst="$(cat "$AvailableDirectory/$pkg/$ver/dst")"
+    bld="$(cat "$AvailableDirectory/$pkg/$ver/bld")"
 
-    if ! wget -q --show-progress --no-cache "$src"; then
+    mkdir "$InstalledDirectory/$pkg"
+    cd "$InstalledDirectory/$pkg"
+
+    if ! wget -q --show-progress --no-cache -i "$AvailableDirectory/$pkg/$ver/src" -O "$pkg source"; then
       warn "failed to retrieve source of package '$pkg' during installation, skipping"
       continue
     fi
 
     case "$bld" in
       gnu )
-        if ! tar xf "$(basename "$src")"; then
+        if ! tar xf "$pkg source"; then
           warn "failed to extract source of package '$pkg' during installation, skipping"
           continue
         else
-          rm "$(basename "$src")"
+          rm "$pkg source"
         fi
 
         local worker
         worker="jpw-worker$(cat /proc/sys/kernel/random/uuid)"
       
         useradd -M "$worker"
-        chown -R "$worker" "$PackageDirectory/$pkg/$dst"
-        cd "$PackageDirectory/$pkg/$dst"
+        chown -R "$worker" "$InstalledDirectory/$pkg/$dst"
+        cd "$InstalledDirectory/$pkg/$dst"
         su -c "./configure $cfg" "$worker"
         su -c "make" "$worker"
         make install
         su -c "make clean" "$worker"
-        chown -R $EUID "$PackageDirectory/$pkg/$dst"
+        chown -R $EUID "$InstalledDirectory/$pkg/$dst"
         userdel "$worker"
 
-        cd "$PackageDirectory/$pkg"
+        cd "$InstalledDirectory/$pkg"
         {
           echo '#!/usr/bin/env bash'
-          echo cd "$PackageDirectory/$pkg/$dst"
+          echo cd "$InstalledDirectory/$pkg/$dst"
           echo make uninstall
         } >> uninstall
         chmod +x uninstall
@@ -294,11 +295,9 @@ function command_error {
 }
 
 function root_command {
-  if ! test -w /; then
+  if ! [[ -w / ]]; then
     command_error "$1" "requires root access"
   fi
 }
 
 main "$@"
-
-# grep -Pzo 'lzip\n(\s.*\n)+' available | grep ^lzip$
