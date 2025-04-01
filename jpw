@@ -23,7 +23,6 @@ declare -r ProgramDescription="A coreutils-powered package manager for GNU/Linux
 declare -r ProgramDirectory="/var/lib/jpw"
 declare -r PackageDirectory="$ProgramDirectory/packages"
 declare -r DatabaseAvailable="$ProgramDirectory/available"
-declare -r DatabaseInstalled="$ProgramDirectory/installed"
 
 function main {
   local -r SRC="$(basename "$0")"
@@ -70,6 +69,12 @@ function main {
 
       grep -E '^\S+$' $DatabaseAvailable
       exit 0
+    elif test "$2" = installed; then
+      if test -e $PackageDirectory; then
+        ls -w 1 $PackageDirectory
+      fi
+
+      exit 0
     fi
   elif test "$1" = install; then
     if test $# = 1; then
@@ -84,6 +89,34 @@ function main {
         install "$@"
         exit 0
       fi
+    fi
+  elif test "$1" = remove; then
+    if test $# = 1; then
+      command_error remove "requires one or more package names as arguments"
+    else
+      root_command remove
+      shift
+
+      while (($#)); do
+        if test -z "$1"; then
+          shift
+          continue
+        elif test "${1:0:1}" = '.'; then
+          warn "package names may not begin with a period, skipping"
+          shift
+          continue
+        elif ! test -e "$PackageDirectory/$1/uninstall"; then
+          warn "package '$1' not installed, skipping"
+          shift
+          continue
+        fi
+
+        "$PackageDirectory/$1/uninstall"
+        rm -rf "$PackageDirectory/${1:?}"
+
+        shift
+      done
+      exit 0
     fi
   fi
   
@@ -182,14 +215,14 @@ function install {
     cd "$PackageDirectory/$pkg"
 
     if ! wget -q --show-progress --no-cache "$src"; then
-      warn "in installation of package '$pkg' failed to retrieve source, skipping"
+      warn "failed to retrieve source of package '$pkg' during installation, skipping"
       continue
     fi
 
     case "$bld" in
       gnu )
         if ! tar xf "$(basename "$src")"; then
-          warn "in installation of package '$pkg' failed to extract source, skipping"
+          warn "failed to extract source of package '$pkg' during installation, skipping"
           continue
         else
           rm "$(basename "$src")"
@@ -207,6 +240,14 @@ function install {
         su -c "make clean" "$worker"
         chown -R $EUID "$PackageDirectory/$pkg/$dst"
         userdel "$worker"
+
+        cd "$PackageDirectory/$pkg"
+        {
+          echo '#!/usr/bin/env bash'
+          echo cd "$PackageDirectory/$pkg/$dst"
+          echo make uninstall
+        } >> uninstall
+        chmod +x uninstall
       ;;
       * )
         error "$bld unimplemented"
