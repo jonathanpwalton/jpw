@@ -18,7 +18,7 @@
 set -e
 
 declare -r ProgramName="jpw"
-declare -r ProgramVersion="20250331"
+declare -r ProgramVersion="20250401"
 declare -r ProgramDescription="A coreutils-powered package manager for GNU/Linux"
 declare -r ProgramDirectory="/var/lib/jpw"
 declare -r PackageDirectory="$ProgramDirectory/packages"
