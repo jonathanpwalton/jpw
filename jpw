@@ -1,317 +1,88 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python
 
-# Copyright (C) 2025 Jonathan Walton
-# 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-# 
-# You should have received a copy of the GNU General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
+import sys, time
 
-set -e
+from sys import argv, exit
+from os import uname, chdir
+from os.path import basename
+from urllib.request import urlopen
+from urllib.error import HTTPError
 
-declare -r ProgramName="jpw"
-declare -r ProgramVersion="20250401"
-declare -r ProgramDescription="A coreutils-powered package manager for GNU/Linux"
-declare Prefix="/"
+def update_available():
+  pass
 
-function main {
-  local -r Program="$(basename "$0")"
-  local -r Kernel="$(uname -s)"
+def update_installed():
+  pass
 
-  if [[ $Kernel != Linux  ]]; then
-    error "$(bold "$Program") is only designed for use on Linux systems"
-  fi
-
-  if [[ $1 = "-r" ]]; then
-    shift
-
-    if [[ $# = 0 || ! -d $1 ]]; then
-      error "the '$(bold root)' option (-r) must be followed by a directory (default /)"
-    fi
-
-    Prefix="$1"
-    shift
-  fi
-
-  Prefix+="/var/lib/jpw"
-  declare InstalledDirectory="$Prefix/installed"
-  declare AvailableDirectory="$Prefix/available"
-
-  case "$1" in
-    "" )
-      error "a command must be supplied, see '$(bold "$Program help")' for more information"
-    ;;
-    help | -h | --help )
-      if [[ $# != 1  ]]; then
-        echo "Error: the '$1' command does not take any arguments, see '$(bold "$Program help")' for more information"
-        exit 1
-      fi
-
-      bold "$ProgramName $ProgramVersion"
-      echo "$ProgramDescription"
-      echo
-      echo "$(underline "$(bold Usage)"): $(bold "$Program") [-r <root>] <command>"
-      echo
-      echo "$(underline "$(bold Commands)"):"
-      echo "  $(bold update) [available | installed]                          Update available, installed, or all packages"
-      echo "  $(bold install) {<package> [-v <version>] [-c <config>] ...}    Fetch and install one or more packages"
-      echo "  $(bold remove) {<package> ...}                                  Uninstall and remove one or more packages"
-      echo "  $(bold list) {available | installed}                            Display all available or installed packages"
-      echo "  $(bold help)                                                    Display this help text and exit"
-      exit 0
-    ;;
-    update )
-      if [[ $# = 1  ]]; then
-        update_available
-        update_installed
-        exit 0
-      elif [[ $# = 2 && $2 = available  ]]; then
-        update_available
-        exit 0
-      elif [[ $# = 2 && $2 = installed  ]]; then
-        update_installed
-        exit 0
-      else
-        command_error update "requires zero or exactly one argument of {available | installed}"
-      fi
-    ;;
-    list )
-      if [[ $# != 2  ]]; then
-        command_error list "requires exactly one argument of {available | installed}"
-      elif [[ $2 = available  ]]; then
-        if ! [[ -d "$AvailableDirectory"  ]]; then
-          error "the local database of available packages has not been initialized, run '$(bold "jpw update available")' first"
-        fi
-
-        ls -w 1 "$AvailableDirectory"
-        exit 0
-      elif [[ $2 = installed  ]]; then
-        if [[ -e "$InstalledDirectory"  ]]; then
-          ls -w 1 "$InstalledDirectory"
-        fi
-
-        exit 0
-      fi
-    ;;
-    install )
-      if [[ $# = 1  ]]; then
-        command_error install "requires one or more package names as arguments"
-      else
-        root_command install
-
-        if ! [[ -d $AvailableDirectory  ]]; then
-          error "the local database of available packages has not been initialized, run '$(bold "jpw update available")' first"
-        else
-          shift
-          install "$@"
-          exit 0
-        fi
-      fi
-    ;;
-    remove )
-      root_command remove
-
-      if [[ $# = 1 ]]; then
-        command_error remove "requires one or more package names as arguments"
-      else
-        shift
-
-        while (($#)); do
-          if [[ -z "$1" ]]; then
-            shift
-            continue
-          elif [[ "${1:0:1}" = '.' ]]; then
-            warn "package names may not begin with a period, skipping '$1'"
-            shift
-            continue
-          elif ! [[ -e "$InstalledDirectory/$1/uninstall" ]]; then
-            warn "package '$1' not installed, skipping"
-            shift
-            continue
-          fi
-
-          "$InstalledDirectory/$1/uninstall"
-          rm -rf "$InstalledDirectory/${1:?}"
-
-          shift
-        done
-        exit 0
-      fi
-    ;;
-  esac
+def dispatch():
+  def invalid():
+    raise ArgumentError(f'command or combination {repr(argv[1:])} is invalid, see {repr(f'{basename(argv[0])} help')} for more information')
   
-  error "the command '$(bold "$*")' was not recognized, see '$(bold "$Program help")' for more information"
-}
+  def count(c: int):
+    if len(argv) != c:
+      invalid()
 
-function update_available {
-  root_command update
+  if len(argv) == 1:
+    raise ArgumentError(f'at least one command must be supplied, see {repr(f'{basename(argv[0])} help')} for more information')
+  
+  match argv[1]:
+    case 'help':
+      count(2)
+      print('\n'.join([
+        'jpw',
+        '',
+        'usage:',
+        '  jpw <command>',
+        '',
+        'commands:',
+        '  update [available | installed]                         update available, installed, or all packages',
+        '  install {<package> [-v <version>] [-c <config>] ...}   fetch and install one or more packages',
+        '  remove {<package> ...}                                 uninstall and remove one or more packages',
+        '  list {available | installed}                           list all available or installed packages',
+        '  help                                                   display this help text and exit',
+      ]))
+    case 'update':
+      if len(argv) == 2:
+        update_available()
+        update_installed()
+      else:
+        count(3)
+        match argv[2]:
+          case 'available': update_available()
+          case 'installed': update_installed()
+          case _: invalid()
+    case _:
+      invalid()
 
-  if [[ -d "$AvailableDirectory" ]]; then
-    rm -rf "$AvailableDirectory"
-  elif ! [[ -e "$Prefix" ]]; then
-    mkdir -p "$Prefix"
-  fi
+class ArgumentError(Exception):
+  def __init__(self, *args):
+    super().__init__(*args)
 
-  cd /tmp
-  wget -q --show-progress --no-cache https://github.com/jonathanpwalton/jpw-packages/archive/refs/heads/main.tar.gz -O available
-  cd "$Prefix"
-  tar xf /tmp/available
-  mv ./jpw-packages-main "$AvailableDirectory"
-}
+def download(url: str):
+  file = basename(url)
 
-function update_installed {
-  root_command update
-  unimplemented
-}
+  print(file.center(80))
 
-function install {
-  mkdir -p "$InstalledDirectory"
+  with urlopen(url) as response:
+    headers: dict[str, str] = dict(response.getheaders())
 
-  local -a staging
+    with open(file, 'wb') as output:
+      while output.write(response.read(4096)) != 0:
+        bytes = output.tell()
 
-  while (($#)); do
-    local pkg=$1
-    shift
+        try:
+          total = int(headers['Content-Length'])
+          length = int(bytes / total * 78)
 
-    if [[ "$pkg" != "$(printf "%q" "$pkg")" ]]; then
-      error "cannot install '$pkg' as it is not a valid package name"
-    elif ! [[ -d "$AvailableDirectory/$pkg" ]]; then
-      error "package '$pkg' not found in the local database of available packages"
-    fi
+          print(f'[{'=' * length}{' ' * (78 - length)}]', end='\r')
+        except KeyError:
+          left = int(time.time()) % 79
+          bar = '=' * int(6 if left <= 72 else max(78 - left, 0))
+          right = int(max(78 - left - len(bar), 0))
+          print(f'[{' ' * left}{bar}{' ' * right}]', end='\r')
+      print()
 
-    local ver=latest
-    if echo "$1" | grep -q '\-v'; then
-      shift
-
-      if [[ $# = 0 ]]; then
-        error "the option '$(bold -v)' (for package '$pkg') requires an argument in the format '-v <version>'"
-      else
-        ver="$1"
-        shift
-      fi
-    else
-      ver=$(cat "$AvailableDirectory/$pkg/latest")
-    fi
-
-    if ! [[ -d "$AvailableDirectory/$pkg/$ver" ]]; then
-      error "version '$ver' for package '$pkg' not found in the local database of available packages"
-    fi
-
-    local cfg=""
-    if echo "$1" | grep -q '\-c'; then
-      shift
-
-      if [[ $# = 0 ]]; then
-        error "the option '$(bold -c)' (for package '$pkg') requires an argument in the format '-c <config>'"
-      else
-        cfg="$1"
-        shift
-      fi
-    fi
-
-    staging+=("$pkg" "$ver" "$cfg")
-  done
-
-  local -i i
-  for ((i=0; i < ${#staging[@]}; i+=3)); do
-    local pkg="${staging[(($i + 0))]}"
-    local ver="${staging[(($i + 1))]}"
-    local cfg="${staging[(($i + 2))]}"
-
-    local dst bld
-    dst="$(cat "$AvailableDirectory/$pkg/$ver/dst")"
-    bld="$(cat "$AvailableDirectory/$pkg/$ver/bld")"
-
-    mkdir "$InstalledDirectory/$pkg"
-    cd "$InstalledDirectory/$pkg"
-
-    if ! wget -q --show-progress --no-cache -i "$AvailableDirectory/$pkg/$ver/src" -O "$pkg source"; then
-      warn "failed to retrieve source of package '$pkg' during installation, skipping"
-      continue
-    fi
-
-    case "$bld" in
-      gnu )
-        if ! tar xf "$pkg source"; then
-          warn "failed to extract source of package '$pkg' during installation, skipping"
-          continue
-        else
-          rm "$pkg source"
-        fi
-
-        local worker
-        worker="jpw-worker$(cat /proc/sys/kernel/random/uuid)"
-      
-        useradd -M "$worker"
-        chown -R "$worker" "$InstalledDirectory/$pkg/$dst"
-        cd "$InstalledDirectory/$pkg/$dst"
-        su -c "./configure $cfg" "$worker"
-        su -c "make" "$worker"
-        make install
-        su -c "make clean" "$worker"
-        chown -R $EUID "$InstalledDirectory/$pkg/$dst"
-        userdel "$worker"
-
-        cd "$InstalledDirectory/$pkg"
-        {
-          echo '#!/usr/bin/env bash'
-          echo cd "$InstalledDirectory/$pkg/$dst"
-          echo make uninstall
-        } >> uninstall
-        chmod +x uninstall
-      ;;
-      * )
-        error "$bld unimplemented"
-      ;;
-    esac
-  done
-}
-
-function supports {
-  command -v "$1" > /dev/null 2>&1
-}
-
-function bold {
-  if supports tput; then
-    echo "$(tput bold)$1$(tput sgr0)"
-  else
-    echo "$1"
-  fi
-}
-
-function underline {
-  if supports tput; then
-    echo "$(tput smul)$1$(tput rmul)"
-  else
-    echo "$1"
-  fi
-}
-
-function error {
-  echo "$(bold Error): $1"
-  exit 1
-}
-
-function warn {
-  echo "$(bold Warning): $1"
-}
-
-function command_error {
-  error "the command '$(bold "$1")' $2"
-}
-
-function root_command {
-  if ! [[ -w / ]]; then
-    command_error "$1" "requires root access"
-  fi
-}
-
-main "$@"
+if __name__ == "__main__":
+  sys.tracebacklimit = 0
+  assert uname().sysname == 'Linux'
+  dispatch()
