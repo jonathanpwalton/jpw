@@ -20,9 +20,7 @@ set -e
 declare -r ProgramName="jpw"
 declare -r ProgramVersion="20250401"
 declare -r ProgramDescription="A coreutils-powered package manager for GNU/Linux"
-declare -r ProgramDirectory="/var/lib/jpw"
-declare -r InstalledDirectory="$ProgramDirectory/installed"
-declare -r AvailableDirectory="$ProgramDirectory/available"
+declare Prefix="/"
 
 function main {
   local -r Program="$(basename "$0")"
@@ -30,11 +28,27 @@ function main {
 
   if [[ $Kernel != Linux  ]]; then
     error "$(bold "$Program") is only designed for use on Linux systems"
-  elif [[ $# = 0  ]]; then
-    error "a command must be supplied, see '$(bold "$Program help")' for more information"
   fi
 
+  if [[ $1 = "-r" ]]; then
+    shift
+
+    if [[ $# = 0 || ! -d $1 ]]; then
+      error "the '$(bold root)' option (-r) must be followed by a directory (default /)"
+    fi
+
+    Prefix="$1"
+    shift
+  fi
+
+  Prefix+="/var/lib/jpw"
+  declare InstalledDirectory="$Prefix/installed"
+  declare AvailableDirectory="$Prefix/available"
+
   case "$1" in
+    "" )
+      error "a command must be supplied, see '$(bold "$Program help")' for more information"
+    ;;
     help | -h | --help )
       if [[ $# != 1  ]]; then
         echo "Error: the '$1' command does not take any arguments, see '$(bold "$Program help")' for more information"
@@ -44,7 +58,7 @@ function main {
       bold "$ProgramName $ProgramVersion"
       echo "$ProgramDescription"
       echo
-      echo "$(underline "$(bold Usage)"): $(bold "$Program") <command>"
+      echo "$(underline "$(bold Usage)"): $(bold "$Program") [-r <root>] <command>"
       echo
       echo "$(underline "$(bold Commands)"):"
       echo "  $(bold update) [available | installed]                          Update available, installed, or all packages"
@@ -73,15 +87,15 @@ function main {
       if [[ $# != 2  ]]; then
         command_error list "requires exactly one argument of {available | installed}"
       elif [[ $2 = available  ]]; then
-        if ! [[ -d $AvailableDirectory  ]]; then
+        if ! [[ -d "$AvailableDirectory"  ]]; then
           error "the local database of available packages has not been initialized, run '$(bold "jpw update available")' first"
         fi
 
-        ls -w 1 $AvailableDirectory
+        ls -w 1 "$AvailableDirectory"
         exit 0
       elif [[ $2 = installed  ]]; then
-        if [[ -e $InstalledDirectory  ]]; then
-          ls -w 1 $InstalledDirectory
+        if [[ -e "$InstalledDirectory"  ]]; then
+          ls -w 1 "$InstalledDirectory"
         fi
 
         exit 0
@@ -140,17 +154,17 @@ function main {
 function update_available {
   root_command update
 
-  if [[ -d $AvailableDirectory ]]; then
-    rm -rf $AvailableDirectory
-  elif ! [[ -e $ProgramDirectory ]]; then
-    mkdir -p $ProgramDirectory
+  if [[ -d "$AvailableDirectory" ]]; then
+    rm -rf "$AvailableDirectory"
+  elif ! [[ -e "$Prefix" ]]; then
+    mkdir -p "$Prefix"
   fi
 
   cd /tmp
   wget -q --show-progress --no-cache https://github.com/jonathanpwalton/jpw-packages/archive/refs/heads/main.tar.gz -O available
-  cd $ProgramDirectory
+  cd "$Prefix"
   tar xf /tmp/available
-  mv ./jpw-packages-main $AvailableDirectory
+  mv ./jpw-packages-main "$AvailableDirectory"
 }
 
 function update_installed {
@@ -159,7 +173,7 @@ function update_installed {
 }
 
 function install {
-  mkdir -p $InstalledDirectory
+  mkdir -p "$InstalledDirectory"
 
   local -a staging
 
