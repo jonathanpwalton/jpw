@@ -51,15 +51,18 @@ function jpw_cmd_pull {
     exit 1
   fi
 
-  if { [[ ! -d $(container) ]] && ! rm -rf "$(container)" && ! mkdir -p "$(container)" > /dev/null 2>&1; } || [[ -d $(container) && ! -w $(container) ]]; then
+  if [[ ! -d $(container) && ! -w $root ]] || [[ -d $(container) && ! -w $(container) ]]; then
     echo "error: you do not have adequate permission"
     exit 1
+  elif ! [[ -d $(container) ]]; then
+    rm -f "$(container)"
+    mkdir -p "$(container)"
   fi
 
   if [[ $# = 0 || $1 = available ]]; then
     rm -rf "$(available)"
     rm -f "$(container)/.pkgs"
-    wget --quiet --show-progress -O "$(container)/.pkgs" "$available_tarball_url"
+    wget --quiet --show-progress --no-cache -O "$(container)/.pkgs" "$available_tarball_url"
     tar -xf "$(container)/.pkgs" -C "$(container)"
     mv "$(container)/$(tar -tf "$(container)/.pkgs" | head -1)" "$(available)"
     rm -f "$(container)/.pkgs"
@@ -74,9 +77,16 @@ function jpw_cmd_grab {
   if [[ $# = 0 ]]; then
     echo "error: the 'grab' command must be followed by one or more package names"
     exit 1
+  elif ! [[ -d $(available) ]]; then
+    echo "error: the available package database has not been initialized, run '$0 pull available' first"
+    exit 1
+  elif ! [[ -w $(container) ]]; then
+    echo "error: you do not have adequate permission"
+    exit 1
   fi
 
   local -a staging=()
+  local package provider version config
 
   while (($#)); do
     if ! portably_posix "$1"; then
@@ -86,7 +96,7 @@ function jpw_cmd_grab {
       echo "error: '$1' is not the name of an available package"
       exit 1
     else
-      local package="$1"; shift
+      package="$1"; shift
     fi
 
     if [[ $1 = -p ]] && shift; then
@@ -100,10 +110,10 @@ function jpw_cmd_grab {
         echo "error: '$1' is not an available provider for '$package'"
         exit 1
       else
-        local provider="$1"; shift
+        provider="$1"; shift
       fi
     else
-      local provider="$(dir -w 1 "$(available)/$package" | head -1)"
+      provider="$(dir -w 1 "$(available)/$package" | head -1)"
     fi
 
     if [[ $1 = -v ]] && shift; then
@@ -117,10 +127,10 @@ function jpw_cmd_grab {
         echo "error: '$1' is not an available version for '$package' from '$provider'"
         exit 1
       else
-        local version="$1"; shift
+        version="$1"; shift
       fi
     else
-      local version=$(cat "$(available)/$package/$provider/latest")
+      version=$(cat "$(available)/$package/$provider/latest")
     fi
 
     if [[ $1 = -c ]] && shift; then
@@ -128,10 +138,10 @@ function jpw_cmd_grab {
         echo "error: the config option (-c) must be followed by a configuration string"
         exit 1
       else
-        local config="$1"; shift
+        config="$1"; shift
       fi
     else
-      local config=""
+      config=""
     fi
 
     staging+=("$package" "$provider" "$version" "$config")
@@ -142,8 +152,70 @@ function jpw_cmd_grab {
     exit 1
   fi
 
+  if ! [[ -d "$(cache)" ]]; then
+    rm -f "$(cache)"
+    mkdir "$(cache)"
+  fi
+
+  if ! [[ -d "$(installed)" ]]; then
+    rm -f "$(installed)"
+    mkdir "$(installed)"
+  fi
+
+  local src dst bld srcfile
+
   for (( i = 0 ; i < ${#staging[@]}; i += 4 )); do
-    echo "installing ${staging[$i]}"
+    package="${staging[(($i + 0))]}"
+    provider="${staging[(($i + 1))]}"
+    version="${staging[(($i + 2))]}"
+    config="${staging[(($i + 3))]}"
+
+    src="$(cat "$(available)/$package/$provider/$version/src")"
+    dst="$(cat "$(available)/$package/$provider/$version/dst")"
+    bld="$(cat "$(available)/$package/$provider/$version/bld")"
+    srcfile="$(cache)/$(basename "$src")"
+
+    if ! [[ -e $srcfile ]]; then
+      if ! wget --quiet --show-progress --no-cache -P "$(cache)" "$src"; then
+        rm -rf "${srcfile:?}"
+
+        echo "error: failed to retrieve source for '$package'"
+        exit 1
+      fi
+    fi
+
+    rm -rf "$(installed)/${package:?}"
+    mkdir "$(installed)/$package"
+
+    case "$bld" in
+      gnu )
+        local worker
+        worker="jpw-worker-$(cat /proc/sys/kernel/random/uuid)"
+        useradd -M "$worker"
+
+        function cleanup {
+          rm -rf "$(installed)/${package:?}"
+          userdel -f "$worker"
+
+          echo "error: failed to install '$package'"
+          exit 1
+        }
+        
+        if ! tar -C "$(installed)/$package" -xf "$srcfile"; then cleanup; fi
+        if ! chown -R "$worker" "$(installed)/$package/$dst"; then cleanup; fi
+        (
+          cd "$(installed)/$package/$dst"
+          if ! su "$worker" -c "./configure $config"; then cleanup; fi
+          if ! su "$worker" -c "make"; then cleanup; fi
+          if ! make install; then cleanup; fi
+        )
+        chown -R "$(id -nu $EUID)" "$(installed)/$package/$dst"
+        userdel -f "$worker"
+      ;;
+      * )
+        echo "error: building '$bld' is unimplemented"
+      ;;
+    esac  
   done
 }
 
@@ -159,7 +231,9 @@ function jpw_cmd_list {
       dir -w 1 "$(available)"
     fi
   elif [[ $1 = installed ]]; then
-    list_installed
+    if [[ -d $(installed) ]]; then
+      dir -w 1 "$(installed)"
+    fi
   fi
 }
 
@@ -187,5 +261,6 @@ function portably_posix { [[ $1 =~ ^[A-Za-z0-9\._][A-Za-z0-9\._-]*$ ]]; }
 function container { echo "$root/$directory"; }
 function available { echo "$root/$directory/available"; }
 function installed { echo "$root/$directory/installed"; }
+function cache { echo "$root/$directory/cache"; }
 
 main "$@"
