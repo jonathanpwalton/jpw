@@ -1,266 +1,227 @@
 #!/usr/bin/env bash
 
-set -e
+set -Eeo pipefail
 
-declare -r available_tarball_url="https://github.com/jonathanpwalton/packages/archive/refs/heads/main.tar.gz"
+if ! [[ $(command -v $0) =~ .*/usr/local/bin/jpw ]]; then
+  echo "error: jpw must be installed to */usr/local/bin/jpw"
+  exit 1
+fi
 
-declare -rA options=([-r]=root [--root]=root)
-declare -rA options_cnt=([root]=1)
-declare -rA commands=([pull]=0 [grab]=0 [drop]=0 [list]=0 [help]=0)
+declare -r root="$(realpath "$(dirname "$0")/../../..")"
+declare -r pfx="$root/usr/local"
+declare -r lib="$root/var/lib/jpw"
+declare -r tmp="$lib/tmp"
+declare -r dba="$lib/dba"
+declare -r dbi="$lib/dbi"
 
-declare root="/"
-declare -r directory="/var/lib/jpw"
+declare -rA commands=(
+  -h        jpw::help
+  --help    jpw::help
+  help      jpw::help
+  pull      jpw::pull
+  list      jpw::list
+)
+
+declare -rA rootcmds=(
+  pull      true
+)
 
 function main {
-  while [[ $1 =~ ^\-.*$ ]]; do
-    if [[ ${options[$1]+abc} != abc ]]; then
-      echo "error: invalid option '$1', try '$0 help' for more information"
-      exit 1
+  if [[ $# = 0 ]]; then
+    error "a command must be supplied, try 'jpw help' for more information"
+  elif [[ -z ${commands[$1]} ]]; then
+    error "invalid command '$1'"
+  elif [[ -n ${rootcmds[$1]} ]] && [[ ! -w "$root" ]]; then
+    error "you are not permitted to perform this action"
+  fi
+
+  ${commands[$1]} "${@:2}"
+  exit 0
+}
+
+function jpw::pull {
+  if [[ $# != 0 ]]; then
+    jpw::pullpkgs "$@"
+    exit 0
+  fi
+
+  rm -rf "$tmp/jpw" "$dba"
+  mkdir -p "$tmp/jpw"
+
+  stage "synchronizing package database"
+  (
+    cd "$tmp/jpw"
+    wget --timestamping --quiet --show-progress -O "core" "https://github.com/jonathanpwalton/packages/archive/refs/heads/main.tar.gz"
+    tar -xf core
+    mv "$(tar -tf core | head -1)" "$dba"
+  )
+}
+
+function jpw::pullpkgs {
+  if [[ $# = 0 ]]; then
+    error "the 'pull' command must be followed by one or more package names"
+  fi
+
+  local -A pkgset=()
+  local -a staging=()
+  local pkg pro ver
+
+  while (($#)); do
+    stage "resolving package '$1'"
+
+    if ! posix $1; then
+      error "'$1' is not a valid package name"
+    elif [[ ! -d "$dba/$1" ]]; then
+      error "package '$1' is not available"
+    elif [[ -n ${pkgset["$1"]} ]]; then
+      error "package '$1' was given multiple times"
+    else
+      pkg="$1"; shift
     fi
 
-    local flag="$1"; shift
-    local option="jpw_opt_${options[$flag]}"
-    $option "$@"
-    shift "${options_cnt[${options[$flag]}]}"
+    substage "resolving provider"
+    pro="$(dir -w 1 "$dba/$pkg" | head -1)"
+    if [[ $1 = -p ]] && shift; then
+      if [[ -z $1 ]]; then
+        error "package '$pkg' has the provider option (-p) set, but no provider is given"
+      elif ! posix $1; then
+        error "'$1' is not a valid provider name for package '$pkg'"
+      elif [[ ! -d "$dba/$pkg/$1" ]]; then
+        error "provider '$1' is not available for package '$pkg'"
+      else
+        pro="$1"; shift
+      fi
+    fi
+
+    substage "resolving version"
+    ver="$(cat "$dba/$pkg/$pro/latest")"
+    if [[ $1 = -v ]] && shift; then
+      if [[ -z $1 ]]; then
+        error "package '$pkg' has the version option (-v) set, but no version is given"
+      elif ! posix $1; then
+        error "'$1' is not a valid version name for package '$pkg' from provider '$pro'"
+      elif [[ ! -d "$dba/$pkg/$pro/$1" ]]; then
+        error "version '$1' is not available for package '$pkg' from provider '$pro'"
+      else
+        ver="$1"; shift
+      fi
+    fi
+
+    pkgset["$pkg"]=true
+    staging+=("$pkg" "$pro" "$ver")
   done
 
+  local dst bld
+
+  for (( i = 0; i < ${#staging[*]}; i += 3 )); do
+    pkg="${staging[(($i + 0))]}"
+    pro="${staging[(($i + 1))]}"
+    ver="${staging[(($i + 2))]}"
+
+    src="$(cat "$dba/$pkg/$pro/$ver/src")"
+    dst="$(cat "$dba/$pkg/$pro/$ver/dst")"
+    bld="$(cat "$dba/$pkg/$pro/$ver/bld")"
+
+    stage "installing $pkg ($pro $ver)"
+    mkdir -p "$tmp/$pkg"
+
+    substage "fetching source"
+    wget --timestamping --quiet --show-progress --directory-prefix "$tmp/$pkg" "$src"
+      
+    rm -rf "$dbi/$pkg"
+    mkdir -p "$dbi/$pkg/$ver"
+
+    substage "building source"
+    case "$bld" in
+      gnu)
+        set +e
+        (
+          set -e
+          cd "$dbi/$pkg/$ver"
+          tar -xf "$tmp/$pkg/$(basename "$src")"
+          cd "$dbi/$pkg/$ver/$dst"
+          chown -R daemon "$dbi/$pkg/$ver/$dst"
+          su daemon -s /bin/bash -c "./configure --prefix=\"$pfx\"; make"
+          chown -R "$(id -nu $EUID):$(id -ng $EUID)" "$dbi/$pkg/$ver/$dst"
+          make install
+        )
+
+        if [[ $? != 0 ]]; then
+          rm -rf "$dbi/$pkg"
+          error "failed to install package '$pkg'"
+        fi
+
+        set -e
+        substage "configuring drop"
+        {
+          echo "set -e"
+          echo "cd \"$dbi/$pkg/$ver/$dst\""
+          echo "make uninstall"
+        } > "$dbi/$pkg/.drop"
+      ;;
+      *)
+        error "building $bld is unimplemented"
+      ;;
+    esac
+  done
+}
+
+function jpw::drop {
   if [[ $# = 0 ]]; then
-    echo "error: a command is required, try '$0 help' for more information"
-    exit 1
-  elif (( ${commands[$1]-1} )); then
-    echo "error: invalid command '$1', try '$0 help' for more information"
-    exit 1
-  fi
-  
-  local command="jpw_cmd_$1"; shift
-  $command "$@"
-}
-
-function jpw_opt_root {
-  if [[ $# = 0 || ! -d $1 ]]; then
-    echo "error: the root option requires a directory as its argument"
-    exit 1
-  fi
-
-  root="$1"
-}
-
-function jpw_cmd_pull {
-  if [[ $# != 0 && $1 != available && $1 != installed ]]; then
-    echo "error: the 'pull' command takes zero or one argument of [available | installed]"
-    exit 1
-  fi
-
-  if [[ ! -d $(container) && ! -w $root ]] || [[ -d $(container) && ! -w $(container) ]]; then
-    echo "error: you do not have adequate permission"
-    exit 1
-  elif ! [[ -d $(container) ]]; then
-    rm -f "$(container)"
-    mkdir -p "$(container)"
-  fi
-
-  if [[ $# = 0 || $1 = available ]]; then
-    rm -rf "$(available)"
-    rm -f "$(container)/.pkgs"
-    wget --quiet --show-progress --no-cache -O "$(container)/.pkgs" "$available_tarball_url"
-    tar -xf "$(container)/.pkgs" -C "$(container)"
-    mv "$(container)/$(tar -tf "$(container)/.pkgs" | head -1)" "$(available)"
-    rm -f "$(container)/.pkgs"
-  fi
-
-  if [[ $# = 0 || $1 = installed ]] && [[ -d $(installed) ]]; then
-    update_installed
-  fi
-}
-
-function jpw_cmd_grab {
-  if [[ $# = 0 ]]; then
-    echo "error: the 'grab' command must be followed by one or more package names"
-    exit 1
-  elif ! [[ -d $(available) ]]; then
-    echo "error: the available package database has not been initialized, run '$0 pull available' first"
-    exit 1
-  elif ! [[ -w $(container) ]]; then
-    echo "error: you do not have adequate permission"
-    exit 1
+    error "the 'drop' command must be followed by one or more package names"
   fi
 
   local -a staging=()
-  local package provider version config
 
   while (($#)); do
-    if ! portably_posix "$1"; then
-      echo "error: '$1' is not a valid package name"
-      exit 1
-    elif [[ ! -d "$(available)/$1" ]]; then
-      echo "error: '$1' is not the name of an available package"
-      exit 1
-    else
-      package="$1"; shift
-    fi
-
-    if [[ $1 = -p ]] && shift; then
-      if [[ $# = 0 ]]; then
-        echo "error: the provider option (-p) must be followed by a provider name"
-        exit 1
-      elif ! portably_posix "$1"; then
-        echo "error: '$1' is not a valid provider name"
-        exit 1
-      elif [[ ! -d "$(available)/$package/$1" ]]; then
-        echo "error: '$1' is not an available provider for '$package'"
-        exit 1
-      else
-        provider="$1"; shift
-      fi
-    else
-      provider="$(dir -w 1 "$(available)/$package" | head -1)"
-    fi
-
-    if [[ $1 = -v ]] && shift; then
-      if [[ $# = 0 ]]; then
-        echo "error: the version option (-v) must be followed by a version name"
-        exit 1
-      elif ! portably_posix "$1"; then
-        echo "error: '$1' is not a valid version name"
-        exit 1
-      elif [[ ! -d "$(available)/$package/$provider/$1" ]]; then
-        echo "error: '$1' is not an available version for '$package' from '$provider'"
-        exit 1
-      else
-        version="$1"; shift
-      fi
-    else
-      version=$(cat "$(available)/$package/$provider/latest")
-    fi
-
-    if [[ $1 = -c ]] && shift; then
-      if [[ $# = 0 ]]; then
-        echo "error: the config option (-c) must be followed by a configuration string"
-        exit 1
-      else
-        config="$1"; shift
-      fi
-    else
-      config=""
-    fi
-
-    staging+=("$package" "$provider" "$version" "$config")
-  done
-
-  if [[ ${#staging[@]} = 0 ]]; then
-    echo "error: no packages to install"
-    exit 1
-  fi
-
-  if ! [[ -d "$(cache)" ]]; then
-    rm -f "$(cache)"
-    mkdir "$(cache)"
-  fi
-
-  if ! [[ -d "$(installed)" ]]; then
-    rm -f "$(installed)"
-    mkdir "$(installed)"
-  fi
-
-  local src dst bld srcfile
-
-  for (( i = 0 ; i < ${#staging[@]}; i += 4 )); do
-    package="${staging[(($i + 0))]}"
-    provider="${staging[(($i + 1))]}"
-    version="${staging[(($i + 2))]}"
-    config="${staging[(($i + 3))]}"
-
-    src="$(cat "$(available)/$package/$provider/$version/src")"
-    dst="$(cat "$(available)/$package/$provider/$version/dst")"
-    bld="$(cat "$(available)/$package/$provider/$version/bld")"
-    srcfile="$(cache)/$(basename "$src")"
-
-    if ! [[ -e $srcfile ]]; then
-      if ! wget --quiet --show-progress --no-cache -P "$(cache)" "$src"; then
-        rm -rf "${srcfile:?}"
-
-        echo "error: failed to retrieve source for '$package'"
-        exit 1
-      fi
-    fi
-
-    rm -rf "$(installed)/${package:?}"
-    mkdir "$(installed)/$package"
-
-    case "$bld" in
-      gnu )
-        local worker
-        worker="jpw-worker-$(cat /proc/sys/kernel/random/uuid)"
-        useradd -M "$worker"
-
-        function cleanup {
-          rm -rf "$(installed)/${package:?}"
-          userdel -f "$worker"
-
-          echo "error: failed to install '$package'"
-          exit 1
-        }
-        
-        if ! tar -C "$(installed)/$package" -xf "$srcfile"; then cleanup; fi
-        if ! chown -R "$worker" "$(installed)/$package/$dst"; then cleanup; fi
-        (
-          cd "$(installed)/$package/$dst"
-          if ! su "$worker" -c "./configure $config"; then cleanup; fi
-          if ! su "$worker" -c "make"; then cleanup; fi
-          if ! make install; then cleanup; fi
-        )
-        chown -R "$(id -nu $EUID)" "$(installed)/$package/$dst"
-        userdel -f "$worker"
-      ;;
-      * )
-        echo "error: building '$bld' is unimplemented"
-      ;;
-    esac  
+    unimpl 
   done
 }
 
-function jpw_cmd_list {
+function jpw::list {
   if [[ $# != 1 ]] || [[ $1 != available && $1 != installed ]]; then
-    echo "error: the 'list' command takes one argument of {available | installed}"
-    exit 1
-  elif [[ $1 = available ]]; then
-    if [[ ! -d $(available) ]]; then
-      echo "error: the available package database has not been initialized, run '$0 pull available' first"
-      exit 1
-    else
-      dir -w 1 "$(available)"
-    fi
-  elif [[ $1 = installed ]]; then
-    if [[ -d $(installed) ]]; then
-      dir -w 1 "$(installed)"
-    fi
+    error "the 'list' command takes exactly one argument of {available | installed}"
+  elif [[ $1 = available && -d "$dba" ]]; then
+    dir -w 1 "$dba"
+  elif [[ $1 = installed && -d "$dbi" ]]; then
+    dir -w 1 "$dbi"
   fi
 }
 
-function jpw_cmd_help {
+function jpw::help {
   if [[ $# != 0 ]]; then
-    echo "error: the 'help' command does not take any arguments"
-    exit 1
+    error "the 'help' command does not take any arguments"
   fi
 
-echo "\
-usage: $0 [<option> ...] <command>
-
-options:
-  -r, --root                                                            set the root directory, default is /
+  echo "\
+usage: jpw <command>
 
 commands:
-  pull [available | installed]                                          update all, available, or installed packages
-  grab {<package> [-p <provider>] [-v <version>] [-c <config>] ...}     install one or more packages
-  drop {<package> ...}                                                  uninstall and remove one or more packages
-  list {available | installed}                                          list all available or installed packages
-  help                                                                  display this help text and exit"
+  pull [<package> [-p <provider>] [-v <version>] ...]   if no packages are provided, synchronize the
+                                                        package database and upgrade any upgradeable
+                                                        packages. if packages are provided, install or
+                                                        upgrade those provided
+  drop {<package> ...}                                  uninstall and remove one ore more packages
+  list {available | installed}                          list all available or installed packages
+  help                                                  display this help text and exit"
 }
 
-function portably_posix { [[ $1 =~ ^[A-Za-z0-9\._][A-Za-z0-9\._-]*$ ]]; }
-function container { echo "$root/$directory"; }
-function available { echo "$root/$directory/available"; }
-function installed { echo "$root/$directory/installed"; }
-function cache { echo "$root/$directory/cache"; }
+function error {
+  echo -e "\e[1;91merror:\e[0m $1"
+  exit 1
+}
+
+function stage {
+  echo -e "\e[1;97m:: $1...\e[0m"
+}
+
+function substage {
+  echo -e "  \e[1;97m==> $1...\e[0m" 
+}
+
+function posix {
+  [[ $1 =~ [a-zA-Z0-9\._]+[a-zA-Z0-9\._-]* ]]
+}
 
 main "$@"
+
