@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+
+set -e
+
+declare -r available_tarball_url="https://github.com/jonathanpwalton/packages/archive/refs/heads/main.tar.gz"
+
+declare -rA options=([-r]=root [--root]=root)
+declare -rA options_cnt=([root]=1)
+declare -rA commands=([pull]=0 [grab]=0 [drop]=0 [list]=0 [help]=0)
+
+declare root="/"
+declare -r directory="/var/lib/jpw"
+
+function main {
+  while [[ $1 =~ ^\-.*$ ]]; do
+    if [[ ${options[$1]+abc} != abc ]]; then
+      echo "error: invalid option '$1', try '$0 help' for more information"
+      exit 1
+    fi
+
+    local flag="$1"; shift
+    local option="jpw_opt_${options[$flag]}"
+    $option "$@"
+    shift "${options_cnt[${options[$flag]}]}"
+  done
+
+  if [[ $# = 0 ]]; then
+    echo "error: a command is required, try '$0 help' for more information"
+    exit 1
+  elif (( ${commands[$1]-1} )); then
+    echo "error: invalid command '$1', try '$0 help' for more information"
+    exit 1
+  fi
+  
+  local command="jpw_cmd_$1"; shift
+  $command "$@"
+}
+
+function jpw_opt_root {
+  if [[ $# = 0 || ! -d $1 ]]; then
+    echo "error: the root option requires a directory as its argument"
+    exit 1
+  fi
+
+  root="$1"
+}
+
+function jpw_cmd_pull {
+  if [[ $# != 0 && $1 != available && $1 != installed ]]; then
+    echo "error: the 'pull' command takes zero or one argument of [available | installed]"
+    exit 1
+  fi
+
+  if { [[ ! -d $(container) ]] && ! rm -rf "$(container)" && ! mkdir -p "$(container)" > /dev/null 2>&1; } || [[ -d $(container) && ! -w $(container) ]]; then
+    echo "error: you do not have adequate permission"
+    exit 1
+  fi
+
+  if [[ $# = 0 || $1 = available ]]; then
+    rm -rf "$(available)"
+    rm -f "$(container)/.pkgs"
+    wget --quiet --show-progress -O "$(container)/.pkgs" "$available_tarball_url"
+    tar -xf "$(container)/.pkgs" -C "$(container)"
+    mv "$(container)/$(tar -tf "$(container)/.pkgs" | head -1)" "$(available)"
+    rm -f "$(container)/.pkgs"
+  fi
+
+  if [[ $# = 0 || $1 = installed ]] && [[ -d $(installed) ]]; then
+    update_installed
+  fi
+}
+
+function jpw_cmd_grab {
+  if [[ $# = 0 ]]; then
+    echo "error: the 'grab' command must be followed by one or more package names"
+    exit 1
+  fi
+
+  local -a staging=()
+
+  while (($#)); do
+    if ! portably_posix "$1"; then
+      echo "error: '$1' is not a valid package name"
+      exit 1
+    elif [[ ! -d "$(available)/$1" ]]; then
+      echo "error: '$1' is not the name of an available package"
+      exit 1
+    else
+      local package="$1"; shift
+    fi
+
+    if [[ $1 = -p ]] && shift; then
+      if [[ $# = 0 ]]; then
+        echo "error: the provider option (-p) must be followed by a provider name"
+        exit 1
+      elif ! portably_posix "$1"; then
+        echo "error: '$1' is not a valid provider name"
+        exit 1
+      elif [[ ! -d "$(available)/$package/$1" ]]; then
+        echo "error: '$1' is not an available provider for '$package'"
+        exit 1
+      else
+        local provider="$1"; shift
+      fi
+    else
+      local provider="$(dir -w 1 "$(available)/$package" | head -1)"
+    fi
+
+    if [[ $1 = -v ]] && shift; then
+      if [[ $# = 0 ]]; then
+        echo "error: the version option (-v) must be followed by a version name"
+        exit 1
+      elif ! portably_posix "$1"; then
+        echo "error: '$1' is not a valid version name"
+        exit 1
+      elif [[ ! -d "$(available)/$package/$provider/$1" ]]; then
+        echo "error: '$1' is not an available version for '$package' from '$provider'"
+        exit 1
+      else
+        local version="$1"; shift
+      fi
+    else
+      local version=$(cat "$(available)/$package/$provider/latest")
+    fi
+
+    if [[ $1 = -c ]] && shift; then
+      if [[ $# = 0 ]]; then
+        echo "error: the config option (-c) must be followed by a configuration string"
+        exit 1
+      else
+        local config="$1"; shift
+      fi
+    else
+      local config=""
+    fi
+
+    staging+=("$package" "$provider" "$version" "$config")
+  done
+
+  if [[ ${#staging[@]} = 0 ]]; then
+    echo "error: no packages to install"
+    exit 1
+  fi
+
+  for (( i = 0 ; i < ${#staging[@]}; i += 4 )); do
+    echo "installing ${staging[$i]}"
+  done
+}
+
+function jpw_cmd_list {
+  if [[ $# != 1 ]] || [[ $1 != available && $1 != installed ]]; then
+    echo "error: the 'list' command takes one argument of {available | installed}"
+    exit 1
+  elif [[ $1 = available ]]; then
+    if [[ ! -d $(available) ]]; then
+      echo "error: the available package database has not been initialized, run '$0 pull available' first"
+      exit 1
+    else
+      dir -w 1 "$(available)"
+    fi
+  elif [[ $1 = installed ]]; then
+    list_installed
+  fi
+}
+
+function jpw_cmd_help {
+  if [[ $# != 0 ]]; then
+    echo "error: the 'help' command does not take any arguments"
+    exit 1
+  fi
+
+echo "\
+usage: $0 [<option> ...] <command>
+
+options:
+  -r, --root                                                            set the root directory, default is /
+
+commands:
+  pull [available | installed]                                          update all, available, or installed packages
+  grab {<package> [-p <provider>] [-v <version>] [-c <config>] ...}     install one or more packages
+  drop {<package> ...}                                                  uninstall and remove one or more packages
+  list {available | installed}                                          list all available or installed packages
+  help                                                                  display this help text and exit"
+}
+
+function portably_posix { [[ $1 =~ ^[A-Za-z0-9\._][A-Za-z0-9\._-]*$ ]]; }
+function container { echo "$root/$directory"; }
+function available { echo "$root/$directory/available"; }
+function installed { echo "$root/$directory/installed"; }
+
+main "$@"
