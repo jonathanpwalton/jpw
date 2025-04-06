@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 
-set -Eeo pipefail
+declare -r VERSION="20250406"
 
-if ! [[ $(command -v $0) =~ .*/usr/local/bin/jpw ]]; then
+set -Eeuo pipefail
+
+if ! [[ $(command -v "$0") =~ .*/usr/local/bin/jpw ]]; then
   echo "error: jpw must be installed to */usr/local/bin/jpw"
   exit 1
 fi
 
-declare -r root="$(realpath "$(dirname "$0")/../../..")"
+declare root
+root="$(realpath "$(dirname "$0")/../../..")"
+readonly root
+
 declare -r pfx="$root/usr/local"
 declare -r lib="$root/var/lib/jpw"
 declare -r tmp="$lib/tmp"
@@ -17,13 +22,16 @@ declare -r dbi="$lib/dbi"
 declare -rA commands=(
   -h        jpw::help
   --help    jpw::help
+  --version jpw::version
   help      jpw::help
   pull      jpw::pull
   list      jpw::list
+  drop      jpw::drop
 )
 
 declare -rA rootcmds=(
   pull      true
+  drop      true
 )
 
 function main {
@@ -31,7 +39,7 @@ function main {
     error "a command must be supplied, try 'jpw help' for more information"
   elif [[ -z ${commands[$1]} ]]; then
     error "invalid command '$1'"
-  elif [[ -n ${rootcmds[$1]} ]] && [[ ! -w "$root" ]]; then
+  elif [[ -n ${rootcmds[$1]:-} ]] && [[ ! -w "$root" ]]; then
     error "you are not permitted to perform this action"
   fi
 
@@ -45,11 +53,10 @@ function jpw::pull {
     exit 0
   fi
 
-  rm -rf "$tmp/jpw" "$dba"
-  mkdir -p "$tmp/jpw"
-
   stage "synchronizing package database"
   (
+    rm -rf "$tmp/jpw" "$dba"
+    mkdir -p "$tmp/jpw"
     cd "$tmp/jpw"
     wget --timestamping --quiet --show-progress -O "core" "https://github.com/jonathanpwalton/packages/archive/refs/heads/main.tar.gz"
     tar -xf core
@@ -69,11 +76,9 @@ function jpw::pullpkgs {
   while (($#)); do
     stage "resolving package '$1'"
 
-    if ! posix $1; then
-      error "'$1' is not a valid package name"
-    elif [[ ! -d "$dba/$1" ]]; then
-      error "package '$1' is not available"
-    elif [[ -n ${pkgset["$1"]} ]]; then
+    if ! posix "$1" || [[ ! -d "$dba/$1" ]]; then
+      error "no such package '$1'"
+    elif [[ ${pkgset["$1"]+defined} = defined ]]; then
       error "package '$1' was given multiple times"
     else
       pkg="$1"; shift
@@ -81,13 +86,11 @@ function jpw::pullpkgs {
 
     substage "resolving provider"
     pro="$(dir -w 1 "$dba/$pkg" | head -1)"
-    if [[ $1 = -p ]] && shift; then
+    if [[ ${1-} = -p ]] && shift; then
       if [[ -z $1 ]]; then
         error "package '$pkg' has the provider option (-p) set, but no provider is given"
-      elif ! posix $1; then
-        error "'$1' is not a valid provider name for package '$pkg'"
-      elif [[ ! -d "$dba/$pkg/$1" ]]; then
-        error "provider '$1' is not available for package '$pkg'"
+      elif ! posix "$1" || [[ ! -d "$dba/$pkg/$1" ]]; then
+        error "no such provider '$1' for package '$pkg'"
       else
         pro="$1"; shift
       fi
@@ -95,13 +98,11 @@ function jpw::pullpkgs {
 
     substage "resolving version"
     ver="$(cat "$dba/$pkg/$pro/latest")"
-    if [[ $1 = -v ]] && shift; then
+    if [[ ${1-} = -v ]] && shift; then
       if [[ -z $1 ]]; then
         error "package '$pkg' has the version option (-v) set, but no version is given"
-      elif ! posix $1; then
-        error "'$1' is not a valid version name for package '$pkg' from provider '$pro'"
-      elif [[ ! -d "$dba/$pkg/$pro/$1" ]]; then
-        error "version '$1' is not available for package '$pkg' from provider '$pro'"
+      elif ! posix "$1" || [[ ! -d "$dba/$pkg/$pro/$1" ]]; then
+        error "no such version '$1' for package '$pkg' from provider '$pro'"
       else
         ver="$1"; shift
       fi
@@ -122,29 +123,29 @@ function jpw::pullpkgs {
     dst="$(cat "$dba/$pkg/$pro/$ver/dst")"
     bld="$(cat "$dba/$pkg/$pro/$ver/bld")"
 
-    stage "installing $pkg ($pro $ver)"
-    mkdir -p "$tmp/$pkg"
+    stage "installing $pkg ($pro) version $ver"
+    mkdir -p "$tmp/$pkg/$pro"
 
-    substage "fetching source"
-    wget --timestamping --quiet --show-progress --directory-prefix "$tmp/$pkg" "$src"
-      
+    substage "fetching source" 
+    wget --timestamping --quiet --show-progress --directory-prefix "$tmp/$pkg/$pro" "$src"
+
     rm -rf "$dbi/$pkg"
     mkdir -p "$dbi/$pkg/$ver"
 
-    substage "building source"
     case "$bld" in
       gnu)
+        substage "building source"
         set +e
         (
           set -e
           cd "$dbi/$pkg/$ver"
-          tar -xf "$tmp/$pkg/$(basename "$src")"
+          tar -xf "$tmp/$pkg/$pro/$(basename "$src")"
           cd "$dbi/$pkg/$ver/$dst"
           chown -R daemon "$dbi/$pkg/$ver/$dst"
           su daemon -s /bin/bash -c "./configure --prefix=\"$pfx\"; make"
-          chown -R "$(id -nu $EUID):$(id -ng $EUID)" "$dbi/$pkg/$ver/$dst"
+          chown -R "$(id -nu "$EUID"):$(id -ng "$EUID")" "$dbi/$pkg/$ver/$dst"
           make install
-        )
+        ) 2>&1 | sed 's/^/     /'
 
         if [[ $? != 0 ]]; then
           rm -rf "$dbi/$pkg"
@@ -154,7 +155,7 @@ function jpw::pullpkgs {
         set -e
         substage "configuring drop"
         {
-          echo "set -e"
+          echo "set -Eeuo pipefail"
           echo "cd \"$dbi/$pkg/$ver/$dst\""
           echo "make uninstall"
         } > "$dbi/$pkg/.drop"
@@ -171,10 +172,28 @@ function jpw::drop {
     error "the 'drop' command must be followed by one or more package names"
   fi
 
-  local -a staging=()
+  local -A argset=()
+  local -A pkgset=()
 
   while (($#)); do
-    unimpl 
+    if [[ ! -d "$dbi/$1" || ! -f "$dbi/$1/.drop" ]]; then
+      error "cannot drop '$1' as it was not pulled"
+    elif [[ ${argset["$1"]+specified} = specified ]]; then
+      error "package '$1' was specified for dropping multiple times"
+    fi
+
+    pkgset["$1"]=true
+    argset["$1"]=true
+    shift
+  done
+
+  local package
+  for package in "${!pkgset[@]}"; do
+    stage "dropping $package"
+    if ! /usr/bin/env bash "$dbi/$package/.drop" | sed 's/^/   /'; then
+      error "failed to drop '$package'"
+    fi
+    rm -rf "$dbi/$package"
   done
 }
 
@@ -182,9 +201,9 @@ function jpw::list {
   if [[ $# != 1 ]] || [[ $1 != available && $1 != installed ]]; then
     error "the 'list' command takes exactly one argument of {available | installed}"
   elif [[ $1 = available && -d "$dba" ]]; then
-    dir -w 1 "$dba"
+    dir -w1 "$dba"
   elif [[ $1 = installed && -d "$dbi" ]]; then
-    dir -w 1 "$dbi"
+    dir -w1 "$dbi"
   fi
 }
 
@@ -201,9 +220,19 @@ commands:
                                                         package database and upgrade any upgradeable
                                                         packages. if packages are provided, install or
                                                         upgrade those provided
-  drop {<package> ...}                                  uninstall and remove one ore more packages
+  drop {<package> ...}                                  uninstall and remove one or more packages
   list {available | installed}                          list all available or installed packages
   help                                                  display this help text and exit"
+}
+
+function jpw::version {
+  echo "\
+jpw (jonathan's package wrangler) $VERSION
+
+Copyright (c) 2025 Jonathan Walton
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law."
 }
 
 function error {
@@ -216,7 +245,7 @@ function stage {
 }
 
 function substage {
-  echo -e "  \e[1;97m==> $1...\e[0m" 
+  echo -e "  \e[1;97m=> $1...\e[0m" 
 }
 
 function posix {
