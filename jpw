@@ -129,7 +129,7 @@ function jpw::pullpkgs {
     substage "fetching source" 
     wget --timestamping --quiet --show-progress --directory-prefix "$tmp/$pkg/$pro" "$src"
 
-    rm -rf "$dbi/$pkg"
+    rm -rf "$dbi/${pkg:?}"
     mkdir -p "$dbi/$pkg/$ver"
 
     case "$bld" in
@@ -148,7 +148,7 @@ function jpw::pullpkgs {
         ) 2>&1 | sed 's/^/     /'
 
         if [[ $? != 0 ]]; then
-          rm -rf "$dbi/$pkg"
+          rm -rf "$dbi/${pkg:?}"
           error "failed to install package '$pkg'"
         fi
 
@@ -193,7 +193,7 @@ function jpw::drop {
     if ! /usr/bin/env bash "$dbi/$package/.drop" | sed 's/^/   /'; then
       error "failed to drop '$package'"
     fi
-    rm -rf "$dbi/$package"
+    rm -rf "$dbi/${package:?}"
   done
 }
 
