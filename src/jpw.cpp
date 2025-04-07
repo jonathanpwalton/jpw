@@ -50,6 +50,7 @@ int main (int argc, char *cargv[]) {
     }
   } catch (error & e) {
     std::cerr << std::string(INDENT, ' ') << "error: " << e.what() << "\n";
+    exit(1);
   }
 
   return 0;

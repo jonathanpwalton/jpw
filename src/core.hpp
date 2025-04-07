@@ -63,7 +63,7 @@ inline std::string basename(std::string const & path) {
 }
 
 inline void begstage(std::string const & s) {
-  std::cout << (INDENT == 0 ? ":: " : std::string(INDENT, ' ') + "=> " ) << s << '\n';
+  std::cout << "\033[1;97m" << (INDENT == 0 ? ":: " : std::string(INDENT, ' ') + "=> " ) << s << "\033[0m" << std::endl;
   INDENT += 3;
 }
 
@@ -116,9 +116,9 @@ inline std::path download(std::string const & url, std::path const & dir, std::s
         std::cout << std::format(" {:3}% ", (short) percent) << "[" << std::format("{:32.32}", std::string((short) (percent / 100.0 * 32), '#')) << "] ";
 
         static auto const format = [] (curl_off_t n) {
-          if (n < (1 << 10)) return std::format("  {:4}B", n);
+          if (n < (1 << 10)) return std::format("{:4}B", n);
           size_t pow = n < (1 << 20) ? 10 : n < (1 << 30) ? 20 : 30;
-          auto suffix = pow == 10 ? "KiB" : pow == 20 ? "MiB" : "GiB";
+          auto suffix = pow == 10 ? "K" : pow == 20 ? "M" : "G";
           double f = n / (double) (1 << pow);
           return f >= 100 ? std::format("{:4.0f}{}", f, suffix) : f >= 10 ? std::format("{:2.1f}{}", f, suffix) : std::format("{:1.2f}{}", f, suffix);
         };
