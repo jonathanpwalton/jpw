@@ -42,8 +42,13 @@ int main (int argc, char *cargv[]) {
 
       if (command == "pull") {
         cmd::pull();
+        exit(0);
+      } else if (command == "show") {
+        cmd::show();
+        exit(0);
       } else if (command == "help") {
         cmd::help();
+        exit(0);
       } else {
         throw error("command '" + command + "' is not recognized, try 'jpw help' for more information");
       }

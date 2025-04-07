@@ -39,6 +39,7 @@ std::path const & get_store();
 
 namespace cmd {
   void pull();
+  void show();
   void help();
 };
 
