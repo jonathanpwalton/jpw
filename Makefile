@@ -1,7 +1,7 @@
 CXX=g++
-CXXFLAGS=-std=c++20 -Wall -Wextra -pedantic
+CXXFLAGS=-Os -std=c++20 -Wall -Wextra -pedantic
 LD=$(CXX)
-LDFLAGS=
+LDFLAGS=-s
 LIBS=-lcurl
 
 SOURCE=src
@@ -27,5 +27,4 @@ install:
 	cp $(BUILD)/$(OUTPUT) $(PREFIX)/bin/$(OUTPUT)
 
 clean:
-	rm -f $(BUILD)/*o $(BUILD)/$(OUTPUT)
-
+	rm -rf $(BUILD)
