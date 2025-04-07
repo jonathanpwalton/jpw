@@ -108,6 +108,8 @@ void cmd::pull() {
 
     if (packages.contains(pname))
       throw error(pname + " was given more than once");
+    else
+      packages.insert(pname);
 
     stages.emplace_back(std::make_shared<package>(pname, pprov, pvers));
   }

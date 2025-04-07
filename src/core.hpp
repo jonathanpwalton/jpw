@@ -93,9 +93,7 @@ inline std::path download(std::string const & url, std::path const & dir, std::s
   if (olabel.empty())
     olabel = url;
 
-  std::string ofile = url;
-  std::replace(ofile.begin(), ofile.end(), '/', '_');
-  std::replace(ofile.begin(), ofile.end(), ':', '-');
+  std::string ofile; for (char c : url) if (c != '/' && c != ':') ofile += c;
   std::ofstream file(dir / ofile);
 
   try {
@@ -103,6 +101,7 @@ inline std::path download(std::string const & url, std::path const & dir, std::s
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, true);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, true);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0");
 
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0);
     
@@ -111,21 +110,24 @@ inline std::path download(std::string const & url, std::path const & dir, std::s
       double percent = now <= total ? (double) now / (total != 0 ? total : UINT64_MAX) * 100.0 : 0.0;
 
       std::cout << "\033[A\r\033[0K" << 
-      std::string(INDENT, ' ') << "downloading " << std::format("{:28.28}", *label) <<
-      std::format(" {:3}% ", (short) percent) << "[" << std::format("{:32.32}", std::string((short) (percent / 100.0 * 32), '#')) << "] ";
+      std::string(INDENT, ' ') << "downloading " << std::format("{:28.28}", *label);
 
-      static auto const format = [] (curl_off_t n) {
-        if (n < (1 << 10)) return std::format("  {:4}B", n);
-        size_t pow = n < (1 << 20) ? 10 : n < (1 << 30) ? 20 : 30;
-        auto suffix = pow == 10 ? "KiB" : pow == 20 ? "MiB" : "GiB";
-        double f = n / (double) (1 << pow);
-        return f >= 100 ? std::format("{:4.0f}{}", f, suffix) : f >= 10 ? std::format("{:2.1f}{}", f, suffix) : std::format("{:1.2f}{}", f, suffix);
-      };
+      if (percent > 0) {
+        std::cout << std::format(" {:3}% ", (short) percent) << "[" << std::format("{:32.32}", std::string((short) (percent / 100.0 * 32), '#')) << "] ";
 
-      if (total > 0) {
-        std::cout << format(now) << " " << format(total);
-      } else if (now > 0)
-        std::cout << format(now);
+        static auto const format = [] (curl_off_t n) {
+          if (n < (1 << 10)) return std::format("  {:4}B", n);
+          size_t pow = n < (1 << 20) ? 10 : n < (1 << 30) ? 20 : 30;
+          auto suffix = pow == 10 ? "KiB" : pow == 20 ? "MiB" : "GiB";
+          double f = n / (double) (1 << pow);
+          return f >= 100 ? std::format("{:4.0f}{}", f, suffix) : f >= 10 ? std::format("{:2.1f}{}", f, suffix) : std::format("{:1.2f}{}", f, suffix);
+        };
+
+        if (total > 0) {
+          std::cout << format(now) << " " << format(total);
+        } else if (now > 0)
+          std::cout << format(now);
+      }
 
       std::cout << std::endl;
       return 0;

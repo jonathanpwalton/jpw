@@ -10,6 +10,7 @@ BUILD=.build
 OUTPUT=jpw
 SOURCES=$(wildcard $(SOURCE)/*.cpp)
 OBJECTS=$(patsubst $(SOURCE)/%.cpp,$(BUILD)/%.o,$(SOURCES))
+PREFIX=/usr/local
 
 all: dir $(BUILD)/$(OUTPUT)
 
@@ -23,7 +24,7 @@ $(OBJECTS): $(BUILD)/%.o : $(SOURCE)/%.cpp $(SOURCE)/core.hpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 install:
-	cp .build/jpw /usr/local/bin/
+	cp $(BUILD)/$(OUTPUT) $(PREFIX)/bin/$(OUTPUT)
 
 clean:
 	rm -f $(BUILD)/*o $(BUILD)/$(OUTPUT)
