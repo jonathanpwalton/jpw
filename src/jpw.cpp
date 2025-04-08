@@ -14,9 +14,10 @@ std::path const & get_repo() { return _repo; }
 std::path const & get_cache() { return _cache; }
 std::path const & get_store() { return _store; }
 
-int main (int argc, char *cargv[]) {
+int main(int argc, char * cargv[]) {
   char selfa[PATH_MAX];
   ssize_t self_length = readlink("/proc/self/exe", selfa, PATH_MAX);
+  srand(time(NULL));
 
   try {
     if (self_length == -1)
@@ -54,7 +55,7 @@ int main (int argc, char *cargv[]) {
       }
     }
   } catch (error & e) {
-    std::cerr << std::string(INDENT, ' ') << "error: " << e.what() << "\n";
+    std::cerr << std::string(INDENT, ' ') << "\033[1;91merror: \033[0m" << e.what() << "\n";
     exit(1);
   }
 

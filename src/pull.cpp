@@ -1,7 +1,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
-#include <cstdlib>
 #include <ctime>
 
 #include "core.hpp"
@@ -11,7 +10,6 @@ void cmd::pull() {
 
   begstage("synchronizing package repository");
   {
-    srand(time(0));
     auto tmpdir = std::path("/tmp") / ("jpw-" + std::to_string(rand()));
     mkdirs(tmpdir);
 
