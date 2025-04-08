@@ -21,7 +21,7 @@ void cmd::pull() {
       throw error("failed to extract repository, ensure that 'tar' is installed and is capable of extracting '.tar.gz' files");
 
     std::filesystem::remove_all(repo);
-    std::filesystem::rename(tmpdir / "packages-main", repo);
+    std::filesystem::copy(tmpdir / "packages-main", repo, std::filesystem::copy_options::recursive);
     std::filesystem::remove_all(tmpdir);
   }
   endstage();
@@ -42,7 +42,7 @@ void cmd::pull() {
       auto s = repo / n;
 
       if (!is_regular_file(s / p / v / "src") || !is_regular_file(s / p / v / "dst") || !is_regular_file(s / p / v / "bld"))
-        throw error("invalid package description in the repository, please clean and re-pull");
+        throw error("invalid package description in the repository, please clean and pull again");
 
       std::ifstream(s / p / v / "src") >> src;
       std::ifstream(s / p / v / "dst") >> dst;
@@ -65,7 +65,7 @@ void cmd::pull() {
 
       if (argv.empty())
         throw error("option -p was set for package " + pname + " but no provider was given");
-    
+
       pprov = argv.front();
       argv.pop();
 
@@ -115,8 +115,8 @@ void cmd::pull() {
   }
 
   begstage("resolving package dependencies");
-    begstage("TODO");
-    endstage();
+  begstage("TODO");
+  endstage();
   endstage();
 
   begstage("retrieving package sources");
