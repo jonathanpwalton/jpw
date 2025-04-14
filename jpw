@@ -138,6 +138,22 @@ def pull():
 				remove(lib / package['name'])
 				(lib / package['name']).mkdir(parents=True, exist_ok=False)
 				(cache / package['folder']).rename(lib / package['name'] / package['folder'])
+			case custom if type(custom):
+				system(f'chown -R 1 {repr(str(cache / package['folder']))}')
+				for command in custom:
+					if fork() == 0:
+						chdir(cache / package['folder'])
+						if command['user'] != 'root':
+							setuid(1)
+						exit(pipe(*command['command']))
+
+					if wait()[1]:
+						raise UsageException(f'failed to execute command')
+				system(f'chown -R 0 {repr(str(cache / package['folder']))}')
+
+				remove(lib / package['name'])
+				(lib / package['name']).mkdir(parents=True, exist_ok=False)
+				(cache / package['folder']).rename(lib / package['name'] / package['folder'])
 			case _:
 				raise NotImplementedError(package['meta']['build'])
 			
@@ -175,6 +191,18 @@ def drop():
 				if fork() == 0:
 					chdir(data['location'])
 					exit(pipe('make', 'uninstall'))
+
+				if wait()[1]:
+					raise UsageException(f'failed to drop {name}')
+				
+				remove(lib / name)
+			case custom if type(custom) is list and 'drop' in data['meta'] and type(data['meta']['drop']) is list:
+				for command in data['meta']['drop']:
+					if fork() == 0:
+						chdir(data['location'])
+						if command['user'] != 'root':
+							setuid(1)
+						exit(pipe(*command['command']))
 
 				if wait()[1]:
 					raise UsageException(f'failed to drop {name}')
@@ -222,6 +250,7 @@ def set_root(r: Path):
 	lib = r / "var/lib/jpw"
 
 def pipe(*cmd: str) -> int:
+	print(f'{' ' * indent}{' '.join(cmd)}')
 	p = popen(cmd, stdout=PIPE, stderr=PIPE, text=True, bufsize=1)
 	for line in chain(iter(p.stdout.readline, ''), iter(p.stderr.readline, '')):
 		if not line.isspace():
