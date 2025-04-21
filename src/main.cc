@@ -23,7 +23,7 @@ int main(int cargc, char ** cargv) {
 		else
 			throw ProgramError("unknown command, try 'jpw help' for more information");
 	} catch (ProgramError & e) {
-		printf("%*s\033[0m\033[1;91merror: \033[0m%s\n", indent, "", e.what());
+		fprintf(stderr, "%*s\033[0m\033[1;91merror: \033[0m%s\n", indent, "", e.what());
 		return 1;
 	}
 

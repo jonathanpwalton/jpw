@@ -24,7 +24,7 @@ int jpw::wait() {
 
 int jpw::pipe(string const & cmd) {
 	printf("%*s%s\n", indent, "", cmd.c_str());
-	FILE * p = popen(("JPW_BINS=\'" + bins.string() + "\';" + cmd + " 2>&1").c_str(), "r");
+	FILE * p = popen(("JPW_BINS='" + bins.string() + "'; " + cmd + " 2>&1").c_str(), "r");
 	if (!p) throw std::runtime_error("failed to open pipe " + cmd);
 
 	char * line = nullptr;

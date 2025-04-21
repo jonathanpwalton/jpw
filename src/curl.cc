@@ -20,7 +20,7 @@ static int progress(char const * label, curl_off_t total, curl_off_t now, curl_o
 
 	printf("\033[A\r\033[0K");
 	if (total == 0) printf("%*s%-74.74s %s\n", indent, "", label, bytes(now).c_str());
-	else printf("%*s%-28.28s %3d%% [%-32.*s] %s %s\n", indent, "", label, (int) ((double) now / total * 100.0), (int) ((double) now / total * 32.0), "################################", bytes(now).c_str(), bytes(total).c_str());
+	else printf("%*s%-28.28s %3d%% [%-32.*s] %s %s\n", indent, "", label, int(now * 100.0 / total), int(now * 32.0 / total), "################################", bytes(now).c_str(), bytes(total).c_str());
 	return 0;
 }
 
