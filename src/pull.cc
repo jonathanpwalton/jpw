@@ -4,6 +4,7 @@ using namespace jpw;
 
 struct Package {
 	str name, repository, provider, version;
+	list<Command> install, uninstall;
 	Package(str name);
 };
 
@@ -48,16 +49,21 @@ int jpw::main_pull() {
 		packages.emplace_back(name);
 	stage_end();
 
+	stage_beg("resolving dependencies");
+	stage_beg("TODO");
+	stage_end();
+	stage_end();
+
 	TODO();
 	return 0;
 }
 
-Package::Package(str name) : name(name), repository(""), provider(""), version("") {
+Package::Package(str name) : name(name) {
 	{
 		BytesIO providersio;
 
 		for (auto & source : File(etc_path / "sources").readlines()) {
-			if (urlopen(providersio, source + "/" + name + "/providers", false)) {
+			if (urldump(providersio, source + "/" + name + "/providers", false)) {
 				repository = source;
 				break;
 			}
@@ -78,13 +84,45 @@ Package::Package(str name) : name(name), repository(""), provider(""), version("
 	}
 
 	{
-		BytesIO versionsio;
+		BytesIO io;
 
-		if (!urlopen(versionsio, repository + "/" + name + "/" + provider + "/versions", false))
-			error(f("failed to find versions for package %s from %s", name.c_str(), provider.c_str()));
+		if (urldump(io, repository + "/" + name + "/" + provider + "/versions", false)) {
+			auto versions = io.readlines();
+			version = versions[0];
+		}
 
-		auto versions = versionsio.readlines();
-		version = versions[0];
+		if (version.empty())
+			error(f("failed to find versions for package %s (%s)", name.c_str(), provider.c_str()));
+	}
+
+	{
+		BytesIO io;
+
+		if (urldump(io, repository + "/" + name + "/" + provider + "/" + version + "/install", false)) {
+			for (auto & cmd : io.readlines()) {
+				if (len(cmd) >= 3 && cmd[0] == '#' && cmd[1] == ' ') install.append(Command { true, cmd.substr(2) });
+				else if (len(cmd) >= 3 && cmd[0] == '$' && cmd[1] == ' ') install.append(Command { false, cmd.substr(2) });
+				else error(f("invalid installation command `%s` for package %s %s (%s)", cmd.c_str(), name.c_str(), version.c_str(), provider.c_str()));
+			}
+		}
+
+		if (install.empty())
+			error(f("failed to find installation instructions for package %s %s (%s)", name.c_str(), provider.c_str(), version.c_str()));
+	}
+
+	{
+		BytesIO io;
+
+		if (urldump(io, repository + "/" + name + "/" + provider + "/" + version + "/install", false)) {
+			for (auto & cmd : io.readlines()) {
+				if (len(cmd) >= 3 && cmd[0] == '#' && cmd[1] == ' ') uninstall.append(Command { true, cmd.substr(2) });
+				else if (len(cmd) >= 3 && cmd[0] == '$' && cmd[1] == ' ') uninstall.append(Command { false, cmd.substr(2) });
+				else error(f("invalid uninstallation command `%s` for package %s %s (%s)", cmd.c_str(), name.c_str(), version.c_str(), provider.c_str()));
+			}
+		}
+
+		if (uninstall.empty())
+			error(f("failed to find uninstallation instructions for package %s %s (%s)", name.c_str(), provider.c_str(), version.c_str()));
 	}
 	
 	log(f("%s %s (%s)", name.c_str(), version.c_str(), provider.c_str()));

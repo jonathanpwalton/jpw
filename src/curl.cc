@@ -12,7 +12,7 @@ static int progress_callback(char * label, curl_off_t total, curl_off_t now, cur
 	return 0;
 }
 
-bool jpw::urlopen(IO & io, str const & url, bool display) {
+bool jpw::urldump(IO & io, str const & url, bool display) {
 	if (!curl) {
 		require(curl = curl_easy_init());
 		require(curl_easy_setopt(curl, CURLOPT_FAILONERROR, true) == CURLE_OK);
@@ -38,7 +38,7 @@ bool jpw::urlopen(IO & io, str const & url, bool display) {
 		}
 		
 		if (display) print(f("\033[A\r\033[0K"), jpw::stdout, "\r");
-		return ++tries <= 3 && urlopen(io, url, display);
+		return ++tries <= 3 && urldump(io, url, display);
 	}
 
 	io.flush();

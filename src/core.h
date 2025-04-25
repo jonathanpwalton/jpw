@@ -148,13 +148,18 @@ namespace jpw {
 		virtual Maybe<str> readline() override;
 	};
 
-	bool urlopen(IO & io, str const & url, bool display = true);
+	bool urldump(IO & io, str const & url, bool display = true);
 
 	inline void stage_beg(str const & label) { print(f("\033[0m\033[1;97m%*s%s %s\033[0m", indent, "", indent == 0 ? "::" : "=>", label.c_str())); indent += 3; }
 	inline void stage_end() { indent -= 3; }
 
 	inline void error(str const & s = "") { print(f("%*s\033[1;91merror: \033[0m%s", indent, "", s.c_str()), jpw::stderr); exit(1); }
 	inline void log(str const & s) { print(f("%*s%s", indent, "", s.c_str())); }
+
+	struct Command {
+		bool root;
+		str command;
+	};
 
 }
 
