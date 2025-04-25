@@ -1,91 +1,162 @@
 #pragma once
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <stddef.h>
-#include <stdbool.h>
+#include <cstdio>
+#include <string>
+#include <vector>
+#include <cstdint>
+#include <cstdarg>
+#include <filesystem>
 
-extern char const * program;
-extern int indent;
+#ifdef JPW_IMPLEMENTATION
+#define JPW_EXTERN
+#define JPW_EXTERN_VALUE(X)
+#else
+#define JPW_EXTERN extern
+#define JPW_EXTERN_VALUE(X) = X
+#endif
 
-/*
-	logging, errors, early exit
-*/
+#undef stdout
+#undef stderr
+#undef stdin
 
-#define log_info(...) do { fprintf(stdout, "%.*s\033[1;97minfo: \033[0m", indent, ""); fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n"); } while (0)
-#define log_warn(...) do { fprintf(stderr, "%.*s\033[1;93mwarning: \033[0m", indent, ""); fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n"); } while (0)
-#define log_error(...) do { fprintf(stderr, "%.*s\033[1;91merror: \033[0m", indent, ""); fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n"); } while (0)
-#define failure(...) do { log_error(__VA_ARGS__); exit(1); } while (0)
+namespace jpw {
 
-#define todo() failure("%s:%d: %s: todo", __FILE__, __LINE__, __func__)
-#define require(Condition) if (!(Condition)) failure("%s:%d: %s: assertion failure: %s", __FILE__, __LINE__, __func__, #Condition)
-#define unreachable() failure("%s:%d: %s: unreachable", __FILE__, __LINE__, __func__)
+	using str = std::string;
+	using Path = std::filesystem::path;
+	namespace fs { using namespace std::filesystem; }
 
-/*
-	temporaries
-*/
+	template<typename T>
+	class list: public std::vector<T> {
+	public:
+		using std::vector<T>::vector;
 
-static long TEMP_LONG;
+		constexpr auto & append(const T & value) {
+			this->push_back(value);
+			return this->back();
+		}
 
-/*
-	pointers
-*/
+		constexpr auto & append(T && value) {
+			this->push_back(value);
+			return this->back();
+		}
 
-static inline void * ptr_swapend(void * data, size_t length, size_t offset, size_t bytes) {
-	void * tmp = malloc(bytes);
-	memcpy(tmp, (char*) data + offset, bytes);
-	memmove((char*) data + offset, (char*) data + offset + bytes, length - offset - bytes);
-	memcpy((char*) data + length - bytes, tmp, bytes);
-	return data;
+		constexpr auto pop(intmax_t index = -1) {
+			if (index == -1) {
+				auto val = this->back();
+				this->pop_back();
+				return val;
+			}
+			
+			if (index < 0) index = this->size() + index;
+			auto val = this->at(index);
+			this->erase(this->begin() + index);
+			return val;
+		}
+
+		constexpr auto slice(intmax_t start = 0, intmax_t stop = INTMAX_MAX, intmax_t step = 1) {
+			list<T> r;
+
+			if (start < 0) start += this->size();
+			if (stop < 0)	stop += this->size();
+			else if (stop == INTMAX_MAX) stop = this->size();
+			if (start < 0 || (size_t) start >= this->size()) return r;
+			if (stop < 0 || (size_t) stop > this->size()) return r;
+
+			for (intmax_t i = start; i < stop; i += step)
+				r += this->at(i);
+
+			return r;
+		}
+	};
+
+	inline auto len(str const & s) {
+		return s.length();
+	}
+
+	template<typename T>
+	inline constexpr auto len(list<T> const & list) {
+		return list.size();
+	}
+
+	inline str f(str const & s, ...) {
+		static char r[4096];
+		va_list ap;
+		va_start(ap, s);
+		vsprintf(r, s.c_str(), ap);
+		va_end(ap);
+		return r;
+	}
+
+	inline void print(str const & s = "", FILE * file = stdout, str const & end = "\n") {
+		fprintf(file, "%s%s", s.c_str(), end.c_str());
+	}
+
+	void set_root(Path root);
+	void require_permission();
+
+	int main_help();
+	int main_pull();
+
+	JPW_EXTERN str program;
+	JPW_EXTERN list<str> argv;
+	JPW_EXTERN int indent;
+
+	JPW_EXTERN Path root_path;
+	JPW_EXTERN Path etc_path;
+	JPW_EXTERN Path lib_path;
+
+	template<typename T>
+	struct Maybe {
+		bool has_value = false;
+		T value;
+		Maybe() : has_value(false) {}
+		Maybe(bool has) : has_value(has) {}
+		Maybe(T const & t) : has_value(true), value(t) {}
+		Maybe(T && t) : has_value(true), value(t) {}
+		operator bool () { return has_value; }
+		operator T & () { return value; }
+	};
+
+	struct IO {
+		FILE * const file = nullptr;
+		IO(FILE * file) : file(file) {}
+		operator FILE * () { return file; }
+		void flush() { fflush(file); }
+		void write(str const & s, str const & end = "\n") { fprintf(file, s.c_str()); if (!end.empty()) fprintf(file, end.c_str()); }
+
+		virtual Maybe<str> readline();
+		list<str> readlines();
+	};
+	
+	static IO stdin(::stdin);
+	static IO stdout(::stdout);
+	static IO stderr(::stderr);
+	
+	struct File : public IO {
+		File(Path const & path, str const & mode = "r") : IO(fopen(path.c_str(), mode.c_str())) {}
+		~File() { fclose(file); }
+	};
+
+	struct BytesIO : public IO {
+		char ** buffer;
+		size_t * size;
+		size_t offset = 0;
+
+		BytesIO() : IO((buffer = new char*(nullptr), size = new size_t(0), open_memstream(buffer, size))) {}
+		~BytesIO() { fclose(file); free(*buffer); delete buffer; delete size; }
+
+		virtual Maybe<str> readline() override;
+	};
+
+	bool urlopen(IO & io, str const & url, bool display = true);
+
+	inline void stage_beg(str const & label) { print(f("\033[0m\033[1;97m%*s%s %s\033[0m", indent, "", indent == 0 ? "::" : "=>", label.c_str())); indent += 3; }
+	inline void stage_end() { indent -= 3; }
+
+	inline void error(str const & s = "") { print(f("%*s\033[1;91merror: \033[0m%s", indent, "", s.c_str()), jpw::stderr); exit(1); }
+	inline void log(str const & s) { print(f("%*s%s", indent, "", s.c_str())); }
+
 }
 
-/*
-	containers
-*/
-
-#define len(Container) (Container).length
-
-/*
-	container: list[Type]
-*/
-
-static inline size_t list_index_abs(size_t length, long index) {
-	return index >= 0 ? (size_t) index : length + index;
-}
-
-#define list_typedef(Type) typedef struct list_type_##Type { Type * data; size_t length; size_t capacity; } list_type_##Type
-#define list(Type) list_type_##Type
-#define list_free(List) do { free((List).data); (List).data = NULL; (List).length = 0; (List).capacity = 0; } while (0)
-#define list_at(List, Index) (List).data[list_index_abs((List).length * sizeof(*(List).data), Index)]
-#define list_push(List, Value) do {\
-	if ((List).length >= (List).capacity) {\
-		(List).capacity = (List).capacity == 0 ? 3 : (size_t) ((List).capacity * 1.5);\
-		(List).data = realloc((List).data, sizeof(*(List).data) * (List).capacity);\
-	}\
-	(List).data[(List).length++] = (Value);\
-} while (0)
-#define list_pop(List, Index) (\
-	TEMP_LONG = (Index),\
-	TEMP_LONG == -1\
-		? (List).data[--(List).length]\
-		: (\
-			(List).data = ptr_swapend((List).data, (List).length * sizeof(*(List).data), list_index_abs((List).length, TEMP_LONG) * sizeof(*(List).data), sizeof(*(List).data)),\
-			(List).data[--(List).length]\
-		)\
-)
-
-/*
-	main dispatch
-*/
-
-int main_help(char ** argv);
-int main_pull(char ** argv);
-#include "core.h"
-
-/*
-	curl
-*/
-
-bool urlopen(char const * url, FILE * file, bool display);
+#define require(Condition) if (!(Condition)) { jpw::error(jpw::f("%s:%d: %s: assertion `" #Condition "` failed", __FILE__, __LINE__, __func__)); }
+#define TODO() jpw::error(jpw::f("%s:%d: %s: TODO", __FILE__, __LINE__, __func__))

@@ -1,13 +1,13 @@
 program = jpw
 version = 20250423
 
-objects = jpw.o print.o pull.o curl.o
+objects = curl.o io.o main.o print.o pull.o
 
-CC = gcc
+CXX = g++
 CPPFLAGS = -DNDEBUG
-CFLAGS = -Os -s -Wall -Wextra -pedantic -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable
-LD = $(CC)
-LDFLAGS = $(CFLAGS)
+CXXFLAGS = -std=c++17 -Os -s -Wall -Wextra -pedantic -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable
+LD = $(CXX)
+LDFLAGS = $(CXXFLAGS)
 LIBS = -lcurl
 
 .PHONY: clean
@@ -15,8 +15,8 @@ LIBS = -lcurl
 $(program): $(objects)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-%.o: src/%.c Makefile
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -c $<
+%.o: src/%.cc Makefile
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ -c $<
 
 clean:
 	rm -f $(program) *.o
