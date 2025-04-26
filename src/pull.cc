@@ -4,7 +4,7 @@ using namespace jpw;
 
 struct Package {
 	str name, repository, provider, version, sourceurl;
-	list<Command> install, uninstall;
+	list<str> install, uninstall;
 	BytesIO source;
 	Package(str name);
 };
@@ -69,7 +69,8 @@ int jpw::main_pull() {
 		Package * failed = nullptr;
 
 		for (auto & p : packages) {
-			auto dst = lib_path / ".tmp" / p.name / "source";
+			auto top = lib_path / ".tmp" / p.name;
+			auto dst = top / "source";
 
 			if (!fs::create_directories(dst)) {
 				failed = &p;
@@ -85,6 +86,9 @@ int jpw::main_pull() {
 			}
 			log("\033[A\r\033[0K", "\r");
 			log(p.name + " ... done");
+
+			File(top / "install", "w").write(p.install);
+			File(top / "uninstall", "w").write(p.uninstall);
 		}
 
 		if (failed) {
@@ -138,31 +142,21 @@ Package::Package(str name) : name(name) {
 	{
 		BytesIO io;
 
-		if (urldump(io, repository + "/" + name + "/" + provider + "/" + version + "/install", false)) {
-			for (auto & cmd : io.readlines()) {
-				if (len(cmd) >= 3 && cmd[0] == '#' && cmd[1] == ' ') install.append(Command { true, cmd.substr(2) });
-				else if (len(cmd) >= 3 && cmd[0] == '$' && cmd[1] == ' ') install.append(Command { false, cmd.substr(2) });
-				else error(f("invalid installation command `%s` for package %s %s (%s)", cmd.c_str(), name.c_str(), version.c_str(), provider.c_str()));
-			}
-		}
+		if (urldump(io, repository + "/" + name + "/" + provider + "/" + version + "/install", false))
+			install = io.readlines();
 
 		if (install.empty())
-			error(f("failed to find installation instructions for package %s %s (%s)", name.c_str(), provider.c_str(), version.c_str()));
+			error(f("failed to find install script for package %s %s (%s)", name.c_str(), provider.c_str(), version.c_str()));
 	}
 
 	{
 		BytesIO io;
 
-		if (urldump(io, repository + "/" + name + "/" + provider + "/" + version + "/install", false)) {
-			for (auto & cmd : io.readlines()) {
-				if (len(cmd) >= 3 && cmd[0] == '#' && cmd[1] == ' ') uninstall.append(Command { true, cmd.substr(2) });
-				else if (len(cmd) >= 3 && cmd[0] == '$' && cmd[1] == ' ') uninstall.append(Command { false, cmd.substr(2) });
-				else error(f("invalid uninstallation command `%s` for package %s %s (%s)", cmd.c_str(), name.c_str(), version.c_str(), provider.c_str()));
-			}
-		}
+		if (urldump(io, repository + "/" + name + "/" + provider + "/" + version + "/install", false))
+			uninstall = io.readlines();
 
 		if (uninstall.empty())
-			error(f("failed to find uninstallation instructions for package %s %s (%s)", name.c_str(), provider.c_str(), version.c_str()));
+			error(f("failed to find uninstall script for package %s %s (%s)", name.c_str(), provider.c_str(), version.c_str()));
 	}
 
 	{

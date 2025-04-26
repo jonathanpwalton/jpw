@@ -133,6 +133,7 @@ namespace jpw {
 		virtual void write(char c) { fputc(c, file); }
 		virtual size_t write(void const * data, size_t bytes ) { return fwrite(data, 1, bytes, file); }
 		virtual void write(str const & s, str const & end = "\n") { fprintf(file, s.c_str()); if (!end.empty()) fprintf(file, end.c_str()); }
+		virtual void write(list<str> const & lines) { for (auto & line : lines) write(line); }
 		virtual Maybe<str> readline();
 		list<str> readlines();
 	};
@@ -176,11 +177,6 @@ namespace jpw {
 
 	inline void error(str const & s = "") { print(f("%*s\033[1;91merror: \033[0m%s", indent, "", s.c_str()), jpw::stderr); exit(1); }
 	inline void log(str const & s, str const & end = "\n") { print(f("%*s%s", indent, "", s.c_str()), jpw::stdout, end); }
-
-	struct Command {
-		bool root;
-		str command;
-	};
 
 	bool extract_archive(IO & src, Path dst);
 

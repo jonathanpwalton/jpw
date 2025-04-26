@@ -12,11 +12,16 @@ LIBS = -lcurl -larchive
 
 .PHONY: clean
 
+all: $(program) droproot
+
 $(program): $(objects)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 %.o: src/%.cc Makefile
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ -c $<
+
+droproot: src/droproot.c
+	$(CC) -o $@ $<
 
 clean:
 	rm -f $(program) *.o

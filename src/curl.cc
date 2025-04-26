@@ -26,9 +26,9 @@ static int progress_callback(char * label, curl_off_t total, curl_off_t now, cur
 	auto nf = bytef(now);
 
 	if (total > 0)
-		log(f("%*s%-*s %3.0f%% [%-32.*s] %s %s", indent, "", lw, label, 100.0 * now / total, (int) (32.0 * now / total), "################################", nf.c_str(), tf.c_str()));
+		log(f("%-*s %3.0f%% [%-32.*s] %s %s", lw, label, 100.0 * now / total, (int) (32.0 * now / total), "################################", nf.c_str(), tf.c_str()));
 	else
-		log(f("%*s%-*s %s", indent, "", lw, label, nf.c_str()));
+		log(f("%-*s %s", lw, label, nf.c_str()));
 	return 0;
 }
 
