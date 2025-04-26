@@ -1,4 +1,6 @@
 #include "core.h"
+#include <limits.h>
+#include <unistd.h>
 
 using namespace jpw;
 
@@ -23,9 +25,9 @@ int jpw::main_pull() {
 	require(argv.pop() == "pull");
 
 	if (!fs::is_regular_file(etc_path / "sources")) {
-		stage_beg("initializing default package repository sources");
+		stage_beg("initializing repository sources");
 		fs::remove_all(etc_path / "sources");
-		File(etc_path / "sources", "w").write("https://raw.githubusercontent.com/jonathanpwalton/packages/refs/heads/main");
+		File(etc_path / "sources", "w").write("https://raw.github.com/jonathanpwalton/packages/refs/heads/main");
 		stage_end();
 	}
 
@@ -59,6 +61,7 @@ int jpw::main_pull() {
 	for (auto & p : packages) {
 		if (!urldump(p.source, p.sourceurl))
 			error(f("failed to download source for package %s %s (%s)", p.name.c_str(), p.version.c_str(), p.provider.c_str()));
+		// TODO: assert checksum
 	}
 	stage_end();
 
@@ -77,6 +80,9 @@ int jpw::main_pull() {
 				break;
 			}
 
+			File(top / "install", "w").write(p.install);
+			File(top / "uninstall", "w").write(p.uninstall);
+
 			log(p.name + " ... ");
 			if (!extract_archive(p.source, dst)) {
 				log("\033[A\r\033[0K", "\r");
@@ -86,9 +92,6 @@ int jpw::main_pull() {
 			}
 			log("\033[A\r\033[0K", "\r");
 			log(p.name + " ... done");
-
-			File(top / "install", "w").write(p.install);
-			File(top / "uninstall", "w").write(p.uninstall);
 		}
 
 		if (failed) {
@@ -98,7 +101,27 @@ int jpw::main_pull() {
 	}
 	stage_end();
 
-	TODO();
+	stage_beg("installing packages");
+	auto cwd = fs::current_path();
+	for (auto & p : packages) {
+		stage_beg(p.name);
+		if (fs::is_directory(lib_path / p.name))
+			TODO();
+
+		fs::remove_all(lib_path / p.name);
+		fs::rename(lib_path / ".tmp" / p.name, lib_path / p.name);
+		if (!fs::chown(lib_path / p.name / "source", SHRT_MAX))
+			error("failed to chown");
+		fs::current_path(lib_path / p.name);
+		if (!pipe("sh -ex ./install"))
+			error("failed to install");
+		fs::chown(lib_path / p.name / "source", getuid());
+		stage_end();
+	}
+	fs::current_path(cwd);
+	stage_end();
+
+	fs::remove_all(lib_path / ".tmp");
 	return 0;
 }
 
@@ -152,7 +175,7 @@ Package::Package(str name) : name(name) {
 	{
 		BytesIO io;
 
-		if (urldump(io, repository + "/" + name + "/" + provider + "/" + version + "/install", false))
+		if (urldump(io, repository + "/" + name + "/" + provider + "/" + version + "/uninstall", false))
 			uninstall = io.readlines();
 
 		if (uninstall.empty())

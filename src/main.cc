@@ -14,6 +14,8 @@ int main(int argc, char ** cargv) {
 		return main_help();
 	else if (argv.back() == "pull")
 		return main_pull();
+	else if (argv.back() == "list")
+		return main_list();
 	else
 		error(f("'%s' is not a valid command, try '%s help' for more information", argv.back().data(), program.data()));
 
@@ -27,6 +29,7 @@ void jpw::set_root(Path root) {
 	root_path = root;
 	etc_path = root / "etc/jpw";
 	lib_path = root / "var/lib/jpw";
+	bin_path = root / "usr/local/bin";
 }
 
 void jpw::require_permission() {
@@ -35,10 +38,12 @@ void jpw::require_permission() {
 	try {
 		if (!fs::is_directory(etc_path)) fs::remove(etc_path);
 		if (!fs::is_directory(lib_path)) fs::remove(lib_path);
+		if (!fs::is_directory(bin_path)) fs::remove(bin_path);
 		fs::create_directories(etc_path);
 		fs::create_directories(lib_path);
+		fs::create_directories(bin_path);
 	
-		for (auto & path : {root_path, etc_path, lib_path}) {
+		for (auto & path : {root_path, etc_path, lib_path, bin_path}) {
 			if (access(path.c_str(), F_OK) != 0 || access(path.c_str(), R_OK | W_OK | X_OK) != 0)
 				throw fs::filesystem_error("", std::make_error_code(std::errc::permission_denied));
 		}

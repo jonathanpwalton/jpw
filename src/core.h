@@ -23,7 +23,10 @@ namespace jpw {
 
 	using str = std::string;
 	using Path = std::filesystem::path;
-	namespace fs { using namespace std::filesystem; }
+	namespace fs {
+		using namespace std::filesystem;
+		bool chown(Path const & path, uid_t uid);
+	}
 
 	template<typename T>
 	class list: public std::vector<T> {
@@ -101,6 +104,7 @@ namespace jpw {
 
 	int main_help();
 	int main_pull();
+	int main_list();
 
 	JPW_EXTERN str program;
 	JPW_EXTERN list<str> argv;
@@ -109,6 +113,7 @@ namespace jpw {
 	JPW_EXTERN Path root_path;
 	JPW_EXTERN Path etc_path;
 	JPW_EXTERN Path lib_path;
+	JPW_EXTERN Path bin_path;
 
 	template<typename T>
 	struct Maybe {
@@ -170,15 +175,15 @@ namespace jpw {
 		virtual Maybe<str> readline() override;
 	};
 
+	bool pipe(str const & command, list<str> const & env = {});
 	bool urldump(IO & io, str const & url, bool display = true);
+	bool extract_archive(IO & src, Path dst);
 
 	inline void stage_beg(str const & label) { print(f("\033[0m\033[1;97m%*s%s %s\033[0m", indent, "", indent == 0 ? "::" : "=>", label.c_str())); indent += 3; }
 	inline void stage_end() { indent -= 3; }
 
 	inline void error(str const & s = "") { print(f("%*s\033[1;91merror: \033[0m%s", indent, "", s.c_str()), jpw::stderr); exit(1); }
 	inline void log(str const & s, str const & end = "\n") { print(f("%*s%s", indent, "", s.c_str()), jpw::stdout, end); }
-
-	bool extract_archive(IO & src, Path dst);
 
 }
 
