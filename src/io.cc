@@ -21,14 +21,14 @@ jpw::list<jpw::str> jpw::IO::readlines() {
 }
 
 jpw::Maybe<jpw::str> jpw::BytesIO::readline() {
-	if (offset >= *size) return false;
+	if (offset >= len(buffer)) return false;
 	str line;
 	while (true) {
-		if (offset >= *size || (*buffer)[offset] == '\0' || (*buffer)[offset] == '\n') {
-			offset += offset < *size && (*buffer)[offset] == '\n' ? 1 : 0;
+		if (offset >= len(buffer) || buffer[offset] == '\0' || buffer[offset] == '\n') {
+			offset += offset < len(buffer) && buffer[offset] == '\n' ? 1 : 0;
 			return line;
 		}
-		line += (*buffer)[offset++];
+		line += buffer[offset++];
 	}
 	return false;
 }

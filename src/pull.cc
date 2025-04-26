@@ -3,8 +3,9 @@
 using namespace jpw;
 
 struct Package {
-	str name, repository, provider, version;
+	str name, repository, provider, version, sourceurl;
 	list<Command> install, uninstall;
+	BytesIO source;
 	Package(str name);
 };
 
@@ -54,6 +55,45 @@ int jpw::main_pull() {
 	stage_end();
 	stage_end();
 
+	stage_beg("downloading packages");
+	for (auto & p : packages) {
+		if (!urldump(p.source, p.sourceurl))
+			error(f("failed to download source for package %s %s (%s)", p.name.c_str(), p.version.c_str(), p.provider.c_str()));
+	}
+	stage_end();
+
+	stage_beg("extracting packages");
+	{
+		fs::remove_all(lib_path / ".tmp");
+		require(fs::create_directories(lib_path / ".tmp"));
+		Package * failed = nullptr;
+
+		for (auto & p : packages) {
+			auto dst = lib_path / ".tmp" / p.name / "source";
+
+			if (!fs::create_directories(dst)) {
+				failed = &p;
+				break;
+			}
+
+			log(p.name + " ... ");
+			if (!extract_archive(p.source, dst)) {
+				log("\033[A\r\033[0K", "\r");
+				log(p.name + " ... failed");
+				failed = &p;
+				break;
+			}
+			log("\033[A\r\033[0K", "\r");
+			log(p.name + " ... done");
+		}
+
+		if (failed) {
+			fs::remove_all(lib_path / ".tmp");
+			error(f("failed to extract source", failed->name.c_str(), failed->version.c_str(), failed->provider.c_str()));
+		}
+	}
+	stage_end();
+
 	TODO();
 	return 0;
 }
@@ -62,9 +102,9 @@ Package::Package(str name) : name(name) {
 	{
 		BytesIO providersio;
 
-		for (auto & source : File(etc_path / "sources").readlines()) {
-			if (urldump(providersio, source + "/" + name + "/providers", false)) {
-				repository = source;
+		for (auto & repo : File(etc_path / "sources").readlines()) {
+			if (urldump(providersio, repo + "/" + name + "/providers", false)) {
+				repository = repo;
 				break;
 			}
 		}
@@ -123,6 +163,18 @@ Package::Package(str name) : name(name) {
 
 		if (uninstall.empty())
 			error(f("failed to find uninstallation instructions for package %s %s (%s)", name.c_str(), provider.c_str(), version.c_str()));
+	}
+
+	{
+		BytesIO io;
+
+		if (urldump(io, repository + "/" + name + "/" + provider + "/" + version + "/source", false)) {
+			auto url = io.readline();
+			if (url) sourceurl = url.value;
+		}
+
+		if (sourceurl.empty())
+			error(f("failed to find source for package %s %s (%s)", name.c_str(), version.c_str(), provider.c_str()));
 	}
 	
 	log(f("%s %s (%s)", name.c_str(), version.c_str(), provider.c_str()));

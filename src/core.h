@@ -69,6 +69,11 @@ namespace jpw {
 		}
 	};
 
+	inline str operator * (const str & s, size_t n) {
+		str result; for (size_t i = 0; i < n; i++) result += s;
+		return result;
+	}
+
 	inline auto len(str const & s) {
 		return s.length();
 	}
@@ -82,7 +87,7 @@ namespace jpw {
 		static char r[4096];
 		va_list ap;
 		va_start(ap, s);
-		vsprintf(r, s.c_str(), ap);
+		vsnprintf(r, 4096, s.c_str(), ap);
 		va_end(ap);
 		return r;
 	}
@@ -121,9 +126,13 @@ namespace jpw {
 		FILE * const file = nullptr;
 		IO(FILE * file) : file(file) {}
 		operator FILE * () { return file; }
-		void flush() { fflush(file); }
-		void write(str const & s, str const & end = "\n") { fprintf(file, s.c_str()); if (!end.empty()) fprintf(file, end.c_str()); }
 
+		virtual list<uint8_t> read() { return {}; }
+
+		virtual void flush() { fflush(file); }
+		virtual void write(char c) { fputc(c, file); }
+		virtual size_t write(void const * data, size_t bytes ) { return fwrite(data, 1, bytes, file); }
+		virtual void write(str const & s, str const & end = "\n") { fprintf(file, s.c_str()); if (!end.empty()) fprintf(file, end.c_str()); }
 		virtual Maybe<str> readline();
 		list<str> readlines();
 	};
@@ -135,16 +144,28 @@ namespace jpw {
 	struct File : public IO {
 		File(Path const & path, str const & mode = "r") : IO(fopen(path.c_str(), mode.c_str())) {}
 		~File() { fclose(file); }
+
+		virtual list<uint8_t> read() override {
+			list<uint8_t> bytes;
+			fseek(file, 0, SEEK_END);
+			bytes.resize(ftell(file));
+			fseek(file, 0, SEEK_SET);
+			fread(bytes.data(), bytes.size(), 1, file);
+			return bytes;
+		}
 	};
 
 	struct BytesIO : public IO {
-		char ** buffer;
-		size_t * size;
+		list<uint8_t> buffer;
 		size_t offset = 0;
 
-		BytesIO() : IO((buffer = new char*(nullptr), size = new size_t(0), open_memstream(buffer, size))) {}
-		~BytesIO() { fclose(file); free(*buffer); delete buffer; delete size; }
+		BytesIO() : IO(nullptr) {}
 
+		virtual list<uint8_t> read() override { return buffer; }
+		virtual void flush() {}
+		virtual void write(char c) override { buffer.append((uint8_t) c); }
+		virtual size_t write(void const * data, size_t bytes ) { size_t s = len(buffer); buffer.insert(buffer.end(), (uint8_t *) data, (uint8_t *) data + bytes * sizeof(uint8_t)); return len(buffer) - s; }
+		virtual void write(str const & s, str const & end = "\n") override { str q = s + end; buffer.insert(buffer.end(), q.begin(), q.end()); }
 		virtual Maybe<str> readline() override;
 	};
 
@@ -154,12 +175,14 @@ namespace jpw {
 	inline void stage_end() { indent -= 3; }
 
 	inline void error(str const & s = "") { print(f("%*s\033[1;91merror: \033[0m%s", indent, "", s.c_str()), jpw::stderr); exit(1); }
-	inline void log(str const & s) { print(f("%*s%s", indent, "", s.c_str())); }
+	inline void log(str const & s, str const & end = "\n") { print(f("%*s%s", indent, "", s.c_str()), jpw::stdout, end); }
 
 	struct Command {
 		bool root;
 		str command;
 	};
+
+	bool extract_archive(IO & src, Path dst);
 
 }
 
