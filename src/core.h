@@ -105,6 +105,7 @@ namespace jpw {
 	int main_help();
 	int main_pull();
 	int main_list();
+	int main_drop();
 
 	JPW_EXTERN str program;
 	JPW_EXTERN list<str> argv;

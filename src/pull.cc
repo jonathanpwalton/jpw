@@ -22,7 +22,7 @@ bool portably_posix(str const & n) {
 
 int jpw::main_pull() {
 	require_permission();
-	require(argv.pop() == "pull");
+	require(len(argv) && argv.pop() == "pull");
 
 	if (!fs::is_regular_file(etc_path / "sources")) {
 		stage_beg("initializing repository sources");

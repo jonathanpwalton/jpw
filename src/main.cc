@@ -16,6 +16,8 @@ int main(int argc, char ** cargv) {
 		return main_pull();
 	else if (argv.back() == "list")
 		return main_list();
+	else if (argv.back() == "drop")
+		return main_drop();
 	else
 		error(f("'%s' is not a valid command, try '%s help' for more information", argv.back().data(), program.data()));
 

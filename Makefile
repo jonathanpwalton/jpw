@@ -12,7 +12,7 @@ LIBS = -lcurl -larchive
 
 all: jpw droproot
 
-jpw: archive.o curl.o io.o main.o print.o pull.o
+jpw: archive.o curl.o io.o main.o print.o pull.o drop.o
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 %.o: src/%.cc Makefile
