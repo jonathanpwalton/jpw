@@ -28,14 +28,12 @@ int jpw::main_drop() {
 		stage_beg(package);
 		fs::current_path(lib_path / package);
 
-		if (!pipe("sh ./uninstall"))
+		if (!pipe("sh -ex ./uninstall"))
 			error("failed to uninstall");
 		fs::remove_all(lib_path / package);
 		stage_end();
 	}
 	stage_end();
 	fs::current_path(cwd);
-
-	TODO();
 	return 0;
 }

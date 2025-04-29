@@ -24,6 +24,9 @@ int jpw::main_pull() {
 	require_permission();
 	require(len(argv) && argv.pop() == "pull");
 
+	srand(time(NULL));
+	Path BUILDIR = lib_path / (".tmp" + std::to_string(rand()));
+
 	if (!fs::is_regular_file(etc_path / "sources")) {
 		stage_beg("initializing repository sources");
 		fs::remove_all(etc_path / "sources");
@@ -67,12 +70,12 @@ int jpw::main_pull() {
 
 	stage_beg("extracting packages");
 	{
-		fs::remove_all(lib_path / ".tmp");
-		require(fs::create_directories(lib_path / ".tmp"));
+		fs::remove_all(BUILDIR);
+		require(fs::create_directories(BUILDIR));
 		Package * failed = nullptr;
 
 		for (auto & p : packages) {
-			auto top = lib_path / ".tmp" / p.name;
+			auto top = BUILDIR / p.name;
 			auto dst = top / "source";
 
 			if (!fs::create_directories(dst)) {
@@ -95,7 +98,7 @@ int jpw::main_pull() {
 		}
 
 		if (failed) {
-			fs::remove_all(lib_path / ".tmp");
+			fs::remove_all(BUILDIR);
 			error(f("failed to extract source", failed->name.c_str(), failed->version.c_str(), failed->provider.c_str()));
 		}
 	}
@@ -109,7 +112,7 @@ int jpw::main_pull() {
 			TODO();
 
 		fs::remove_all(lib_path / p.name);
-		fs::rename(lib_path / ".tmp" / p.name, lib_path / p.name);
+		fs::rename(BUILDIR / p.name, lib_path / p.name);
 		if (!fs::chown(lib_path / p.name / "source", SHRT_MAX))
 			error("failed to chown");
 		fs::current_path(lib_path / p.name);
@@ -121,7 +124,7 @@ int jpw::main_pull() {
 	fs::current_path(cwd);
 	stage_end();
 
-	fs::remove_all(lib_path / ".tmp");
+	fs::remove_all(BUILDIR);
 	return 0;
 }
 

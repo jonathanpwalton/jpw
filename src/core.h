@@ -114,6 +114,7 @@ namespace jpw {
 	JPW_EXTERN Path root_path;
 	JPW_EXTERN Path etc_path;
 	JPW_EXTERN Path lib_path;
+	JPW_EXTERN Path prefix_path;
 	JPW_EXTERN Path bin_path;
 
 	template<typename T>

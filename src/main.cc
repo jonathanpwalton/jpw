@@ -31,7 +31,8 @@ void jpw::set_root(Path root) {
 	root_path = root;
 	etc_path = root / "etc/jpw";
 	lib_path = root / "var/lib/jpw";
-	bin_path = root / "usr/local/bin";
+	prefix_path = root / "usr/local";
+	bin_path = prefix_path / "bin";
 }
 
 void jpw::require_permission() {
