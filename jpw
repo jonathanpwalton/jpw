@@ -1,0 +1,556 @@
+#!/usr/bin/env sh
+
+# jpw, a from-source package manager
+# Copyright (C) 2025 Jonathan Walton
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# shellcheck disable=SC3040
+set -euo pipefail
+
+COMMAND="$1"
+
+main() { (
+  require git curl grep sed tar su chown sha256sum find tail head wc cut useradd su id
+  if test $# -eq 0; then set -- ""; fi
+  set_root "/"
+
+  case "$1" in
+    f | fetch)
+      shift
+      fetch "$@"
+      ;;
+    c | configure)
+      shift
+      fetch "$@"
+      configure
+      ;;
+    b | build)
+      shift
+      fetch "$@"
+      configure
+      build
+      ;;
+    i | install)
+      shift
+      fetch "$@"
+      configure
+      build
+      install
+      ;;
+    '' | h | help)
+      if test -n "$1"; then shift; fi
+      if test $# -eq 0; then set -- ""; fi
+      case "$1" in
+        f | fetch)
+          print80 \
+            "$(bold usage:) $0 fetch <package ...>" \
+            "$(bold purpose:) update database and download package sources"
+          ;;
+        c | configure)
+          print80 \
+            "$(bold usage:) $0 configure <package [-c <pass>] ...>" \
+            "$(bold purpose:) configure packages for building, first fetching sources if    needed"
+          ;;
+        b | build)
+          print80 \
+            "$(bold usage:) $0 build <package ...>" \
+            "$(bold purpose:) build packages, first fetching sources and performing default configuration if needed"
+          ;;
+        i | install)
+          print80 \
+            "$(bold usage:) $0 install <package ...>" \
+            "$(bold purpose:) install packages, first fetching sources, performing default  configuration, and building packages if needed"
+          ;;
+        u | uninstall)
+          print80 \
+            "$(bold usage:) $0 update [<package ...>]" \
+            "$(bold purpose:) uninstall packages"
+          ;;
+        r | remove)
+          print80 \
+            "$(bold usage:) $0 update [<package ...>]" \
+            "$(bold purpose:) remove package sources, and uninstall if installed"
+          ;;
+        '' | h | help)
+          println \
+            "$(bold usage:) $0 <command>" \
+            "" \
+            "$(bold commands:)" \
+            "  fetch <package ...>" \
+            "  configure <package [-c <pass>] ...>" \
+            "  build <package ...>" \
+            "  install <package ...>" \
+            "  uninstall [<package ...>]" \
+            "  remove [<package ...>]" \
+            "  help [<command>]"
+          ;;
+        *)
+          error "unknown command: $1"
+          ;;
+      esac
+      ;;
+    *)
+      error "unknown command: $1"
+      ;;
+  esac
+) }
+
+range() {
+  if test $(($1)) -lt $(($2)); then
+    set -- $(($1)) $(($2)) $((${3:-"1"}))
+    while test "$1" -lt "$2"; do
+      echo "$1"
+      set -- $(($1 + $3)) $(($2)) $(($3))
+    done
+  else
+    set -- $(($1)) $(($2)) $((${3:-"-1"}))
+    while test "$1" -gt "$2"; do
+      echo "$1"
+      set -- $(($1 + $3)) $(($2)) $(($3))
+    done
+  fi
+}
+
+indent=0
+
+stage_beg() {
+  if test $indent -eq 0; then
+    println "$(bold "$(white ":: $1")")"
+  else
+    println "$(nchars ' ' indent)$(bold "$(white "=> $1")")"
+  fi
+  indent=$((indent + 3))
+}
+
+stage_end() {
+  indent=$((indent - 3))
+}
+
+nchars() { (
+  for i in $(range 0 "$2"); do
+    printf %s "$1"
+  done
+); }
+
+bold() { printf "%s" "\033[1m$1\033[22m"; }
+white() { printf "%s" "\033[97m$1\033[39m"; }
+red() { printf "%s" "\033[91m$1\033[39m"; }
+
+println() { (
+  for i in $(range 0 $#); do
+    printf "$1\n"
+    shift
+  done
+); }
+
+indented() {
+  println "$(nchars ' ' $indent)$1"
+}
+
+eraseprev() {
+  printf "\e[A\e[K"
+}
+
+print80() { (
+  for str in "$@"; do
+    while test -n "$str"; do
+      printf "$str" | cut -b 1-80
+      str=$(printf "$str" | cut -b 81-)
+    done
+    shift
+  done
+); }
+
+pipe() {
+  stdbuf -oL "$@" 2>&1 | tr '\r' '\n' | sed "s/^/$(nchars ' ' indent)/"
+}
+
+error() {
+  println "$(nchars ' ' $indent)$(bold "$(red error:)") $1"
+  exit 1
+}
+
+set_root() {
+  rootdir="$1"
+
+  if test -z "$rootdir"; then
+    error "root directory path must not be an empty string"
+  fi
+
+  confdir="$rootdir/etc/jpw"
+  repodir="$rootdir/var/lib/jpw/repositories"
+  package_dir="$rootdir/var/lib/jpw/packages"
+  cachedir="$rootdir/var/cache/jpw"
+  lockfile="$rootdir/var/tmp/jpw"
+}
+
+require() { (
+  for cmd in "$@"; do
+    if ! command -v "$cmd" > /dev/null 2>&1; then
+      error "this utility requires $cmd to be installed"
+    fi
+  done
+); }
+
+require_permission() { (
+  for path in "$rootdir" "$confdir" "$repodir" "$package_dir"; do
+    if ! mkdir -p "$path" 2>&1 || test ! -r "$path" || test ! -w "$path" || test ! -x "$path"; then
+      error "you do not have permission to perform this action"
+    fi
+  done
+
+  if ! id -u jpw-daemon > /dev/null 2>&1 && ! useradd -m -d "$rootdir/var/lib/jpw/daemon" jpw-daemon; then
+    error "you do not have permission to perform this action"
+  fi
+); }
+
+portably_posix() {
+  test -n "$1" && test "$(expr "$1" : '^[A-Za-z0-9._]\+[A-Za-z0-9._-]*$')" -eq ${#1}
+}
+
+aquire_lock() {
+  if test -e "$lockfile"; then
+    error "failed to acquire lock"
+  else
+    touch "$lockfile"
+  fi
+}
+
+release_lock() {
+  rm -f "$lockfile"
+}
+
+fetch() { (
+  require_permission
+  aquire_lock
+
+  stage_beg "synchronizing repositories"
+  (
+    if test ! -f "$confdir/repositories"; then
+      echo "main https://github.com/jonathanpwalton/packages.git" > "$confdir/repositories"
+    fi
+
+    while read -r line; do
+      set -- $line
+      indented "$1 ..."
+
+      cd /tmp
+      if ! git ls-remote "$2" > /dev/null 2>&1; then
+        eraseprev
+        release_lock
+        error "invalid url $2 for repository $1"
+      fi
+
+      if test -d "$repodir/$1" && test "$(grep 'url = ' "$repodir/$1/.git/config" | sed 's/\turl = //')" != "$2"; then
+        rm -rf "$repodir/$1"
+      fi
+
+      if test -d "$repodir/$1"; then
+        if ! status=$(git -C "$repodir/$1" pull 2>&1); then
+          eraseprev
+          release_lock
+          error "failed to pull $1 repository from $2"
+        fi
+      else
+        if ! status=$(git clone --progress "$2" "$repodir/$1" 2>&1); then
+          eraseprev
+          release_lock
+          error "failed to clone $1 repository from $2"
+        fi
+      fi
+
+      if test "$status" = "Already up to date."; then
+        eraseprev
+        indented "$1 ... already up to date"
+      else
+        eraseprev
+        indented "$1 ... done"
+      fi
+    done < "$confdir/repositories"
+  )
+  stage_end
+
+  if test $# -eq 0; then
+    release_lock
+    return 0
+  fi
+
+  stage_beg "resolving packages"
+  while test $# -gt 0; do
+    if ! portably_posix "$1"; then
+      eraseprev
+      release_lock
+      error "$1: invalid package name"
+    fi
+
+    indented "$1 ..."
+
+    repo="$(
+      (
+        cd "$repodir"
+        for repo_opt in $(find "." -maxdepth 1 -type d | tail -n +2); do
+          if test -d "$repo_opt/$1"; then
+            echo "$repo_opt" | sed 's/^\.\///'
+            break
+          fi
+        done
+      )
+    )"
+
+    if test -z "$repo"; then
+      eraseprev
+      release_lock
+      error "$1: no repository contains this package"
+    fi
+
+    vendor="$(
+      (
+        cd "$repodir/$repo/$1"
+        count=$(find . -maxdepth 1 -type d | tail -n +2 | wc -l)
+        if test "$count" -eq 0; then
+          eraseprev
+          release_lock
+          error "$1: no vendor found for this package"
+        elif test "$count" -eq 1; then
+          find . -maxdepth 1 -type d | tail -n +2 | head -1 | sed 's/^\.\///'
+        else
+          unimplmented
+        fi
+      )
+    )"
+
+    if test -z "$vendor"; then
+      exit 1
+    fi
+
+    version=$(cat "$repodir/$repo/$1/$vendor/latest")
+
+    if test ! -f "$repodir/$repo/$1/$vendor/$version"; then
+      release_lock
+      error "$1: no such version $version from vendor $vendor"
+    fi
+
+    eraseprev
+    indented "$1 $version ($vendor)"
+
+    echo "$1 $repo $vendor $version" >> "$lockfile"
+
+    shift
+  done
+  stage_end
+
+  stage_beg "resolving dependencies"
+  indented TODO
+  stage_end
+
+  dload_error=""
+  dload_count=0
+
+  stage_beg "downloading sources"
+  while read -r package repo vendor version; do
+    source_type=$(sed -n 1p "$repodir/$repo/$package/$vendor/$version")
+    source_url=$(sed -n 2p "$repodir/$repo/$package/$vendor/$version")
+    source_sha=$(sed -n 3p "$repodir/$repo/$package/$vendor/$version")
+
+    working_dir="$cachedir/$repo/$package/$vendor"
+    mkdir -p "$working_dir/$version.d"
+
+    if test -e "$working_dir"; then
+      if test -f "$working_dir/$version" && echo "$source_sha" "$working_dir/$version" | sha256sum --check --status; then
+        continue
+      else
+        rm -f "$working_dir/$version"
+      fi
+    fi
+
+    stage_beg "$package"
+    if ! curl -fL -o "$working_dir/$version" "$source_url"; then
+      dload_error="$package: failed to retrieve source"
+      stage_end
+      break
+    elif ! { echo "$source_sha" "$working_dir/$version" | sha256sum --check --status; }; then
+      dload_error="$package: checksum mismatch"
+      stage_end
+      break
+    fi
+
+    case "$source_type" in
+      tarball)
+        if ! tar -xf "$working_dir/$version" -C "$working_dir/$version.d"; then
+          rm -rf "$working_dir/$version" "$working_dir/$version.d"
+          dload_error="$package: failed to extract source"
+          stage_end
+          break
+        fi
+        ;;
+      *)
+        rm -rf "$working_dir/$version" "$working_dir/$version.d"
+        dload_error="$package: unknown source filetype: $source_type"
+        stage_end
+        break
+        ;;
+    esac
+
+    stage_end
+    dload_count=$((dload_count + 1))
+  done < "$lockfile"
+
+  if test -n "$dload_error"; then
+    release_lock
+    error "$dload_error"
+  elif test "$dload_count" -eq 0; then
+    indented "all sources are up to date"
+  fi
+  stage_end
+
+  if test "$(expr "$COMMAND" : f)" -eq 1; then
+    release_lock
+  fi
+); }
+
+configure() { (
+  require_permission
+
+  if ! test -f "$lockfile"; then
+    error "fatal bug: no lock"
+  fi
+
+  stage_beg "configuring packages"
+  while read -r package repo vendor version; do
+    stage_beg "$package"
+    if test -f "$cachedir/$repo/$package/$vendor/$version.c"; then
+      indented "already configured"
+      stage_end
+      continue
+    fi
+    (
+      pre="$(sed -n 4p "$repodir/$repo/$package/$vendor/$version")"
+      cfg="$(sed -n 5p "$repodir/$repo/$package/$vendor/$version")"
+
+      perform() {
+        echo "cd '$cachedir/$repo/$package/$vendor/$version.d' && $pre && $cfg" | sh 2>&1 && echo ''
+      }
+
+      if ! perform | sed -e "s/^/$(nchars ' ' $indent)/" -e '/^\s*$/d'; then
+        release_lock
+        error "failed to perform prelude and configuration: $pre && $cfg"
+      fi
+      touch "$cachedir/$repo/$package/$vendor/$version.c"
+    )
+    stage_end
+  done < "$lockfile"
+  stage_end
+
+  if test "$(expr "$COMMAND" : c)" -eq 1; then
+    release_lock
+  fi
+); }
+
+build() { (
+  require_permission
+
+  if ! test -f "$lockfile"; then
+    error "fatal bug: no lock"
+  fi
+
+  chown -R jpw-daemon:jpw-daemon "$cachedir"
+
+  stage_beg "building packages"
+  while read -r package repo vendor version; do
+    stage_beg "$package"
+    if test -f "$cachedir/$repo/$package/$vendor/$version.b"; then
+      indented "already built"
+      stage_end
+      continue
+    fi
+    (
+      pre="$(sed -n 4p "$repodir/$repo/$package/$vendor/$version")"
+      bld="$(sed -n 6p "$repodir/$repo/$package/$vendor/$version")"
+
+      perform() {
+        su -c "whoami && cd '$cachedir/$repo/$package/$vendor/$version.d' && $pre && $bld" jpw-daemon 2>&1 && echo ''
+      }
+
+      if ! perform | sed -e "s/^/$(nchars ' ' $indent)/" -e '/^\s*$/d'; then
+        release_lock
+        error "failed to perform build: $pre && $bld"
+      fi
+
+      touch "$cachedir/$repo/$package/$vendor/$version.b"
+    )
+    stage_end
+  done < "$lockfile"
+  stage_end
+
+  if test "$(expr "$COMMAND" : b)" -eq 1; then
+    release_lock
+  fi
+); }
+
+install() { (
+  require_permission
+
+  if ! test -f "$lockfile"; then
+    error "fatal bug: no lock"
+  fi
+
+  stage_beg "installing packages"
+  while read -r package repo vendor version; do
+    stage_beg "$package"
+    if test -f "$package_dir/$package"; then
+      indented "already installed"
+      stage_end
+      continue
+    fi
+    (
+      files=""
+
+      {
+        echo "$package"
+        echo "$version"
+        echo "$vendor"
+        echo "$repo"
+      } > "$package_dir/$package"
+
+      perform() {
+        current_dir="$(pwd)"
+        cd "$cachedir/$repo/$package/$vendor/$version.d"
+        cd "$(find . | grep -E 'JPW_DESTDIR$')"
+        files="$(find . -type f | sed -E 's/^\.//')"
+        mkdir -p $(find . -type d | sed -E -e 's/^\.//' -e '/^\s*$/d')
+        for file in $files; do
+          cp -f "./$file" "$file"
+          echo "$file" >> "$package_dir/$package"
+        done
+        cd "$current_dir"
+        echo ''
+      }
+
+      if ! perform 2>&1 | sed -e "s/^/$(nchars ' ' $indent)/" -e '/^\s*$/d'; then
+        release_lock
+        rm -f "$package_dir/$package"
+        error "failed to perform installation: mkdir -p <dirs> && cp -t / <files>"
+      fi
+    )
+    stage_end
+  done < "$lockfile"
+  stage_end
+
+  if test "$(expr "$COMMAND" : i)" -eq 1; then
+    release_lock
+  fi
+); }
+
+main "$@"
