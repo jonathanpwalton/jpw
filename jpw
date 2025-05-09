@@ -427,6 +427,8 @@ configure() { (
     error "fatal bug: no lock"
   fi
 
+  chown -R jpw-daemon:jpw-daemon "$cachedir"
+
   stage_beg "configuring packages"
   while read -r package repo vendor version; do
     stage_beg "$package"
@@ -464,8 +466,6 @@ build() { (
   if ! test -f "$lockfile"; then
     error "fatal bug: no lock"
   fi
-
-  chown -R jpw-daemon:jpw-daemon "$cachedir"
 
   stage_beg "building packages"
   while read -r package repo vendor version; do
