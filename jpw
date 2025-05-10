@@ -19,7 +19,14 @@
 # shellcheck disable=SC3040
 set -euo pipefail
 
-COMMAND="$1"
+# TODO: catch SIGINT during execution, release lock
+# TODO: depedency resolution
+
+if test $# -gt 0; then
+  COMMAND="$1"
+else
+  COMMAND="H"
+fi
 
 main() { (
   require git curl grep sed tar su chown sha256sum find tail head wc cut useradd su id
@@ -27,6 +34,10 @@ main() { (
   set_root "/"
 
   case "$1" in
+    l | list)
+      shift
+      list "$@"
+      ;;
     f | fetch)
       shift
       fetch "$@"
@@ -49,10 +60,19 @@ main() { (
       build
       install
       ;;
+    u | uninstall)
+      shift
+      uninstall "$@"
+      ;;
     '' | h | help)
       if test -n "$1"; then shift; fi
       if test $# -eq 0; then set -- ""; fi
       case "$1" in
+        l | list)
+          print80 \
+            "$(bold usage:) $0 list {available | installed}" \
+            "$(bold purpose:) view all available or installed packages"
+          ;;
         f | fetch)
           print80 \
             "$(bold usage:) $0 fetch <package ...>" \
@@ -85,16 +105,25 @@ main() { (
           ;;
         '' | h | help)
           println \
+            "jpw, a from-source package manager" \
+            "" \
             "$(bold usage:) $0 <command>" \
             "" \
             "$(bold commands:)" \
+            "  list {installed | available}" \
             "  fetch <package ...>" \
             "  configure <package [-c <pass>] ...>" \
             "  build <package ...>" \
             "  install <package ...>" \
             "  uninstall [<package ...>]" \
             "  remove [<package ...>]" \
-            "  help [<command>]"
+            "  help [<command>]" \
+            "" \
+            "Copyright (C) 2015 Free Software Foundation, Inc." \
+            "License GPLv3+: GNU GPL version 3 or later" \
+            "<http://www.gnu.org/licenses/gpl.html>." \
+            "This is free software: you are free to change and redistribute it." \
+            "There is NO WARRANTY, to the extent permitted by law."
           ;;
         *)
           error "unknown command: $1"
@@ -220,7 +249,7 @@ portably_posix() {
   test -n "$1" && test "$(expr "$1" : '^[A-Za-z0-9._]\+[A-Za-z0-9._-]*$')" -eq ${#1}
 }
 
-aquire_lock() {
+acquire_lock() {
   if test -e "$lockfile"; then
     error "failed to acquire lock"
   else
@@ -232,9 +261,25 @@ release_lock() {
   rm -f "$lockfile"
 }
 
+list() {
+  if test $# -eq 1 && test "$1" = available; then
+    unimplemented
+  elif test $# -eq 1 && test "$1" = installed; then (
+    if ! test -d "$package_dir"; then return 0; fi
+    cd "$package_dir"
+    for package in *; do
+      if test "$package" != '*'; then
+        echo "$package"
+      fi
+    done
+  ); else
+    error "the list command requires exactly one argument of {installed | available}"
+  fi
+}
+
 fetch() { (
   require_permission
-  aquire_lock
+  acquire_lock
 
   stage_beg "synchronizing repositories"
   (
@@ -283,7 +328,10 @@ fetch() { (
   stage_end
 
   if test $# -eq 0; then
-    release_lock
+    if test "$(expr "$COMMAND" : f)" -eq 1; then
+      release_lock
+    fi
+
     return 0
   fi
 
@@ -326,7 +374,8 @@ fetch() { (
         elif test "$count" -eq 1; then
           find . -maxdepth 1 -type d | tail -n +2 | head -1 | sed 's/^\.\///'
         else
-          unimplmented
+          release_lock
+          unimplemented
         fi
       )
     )"
@@ -433,7 +482,7 @@ configure() { (
   while read -r package repo vendor version; do
     stage_beg "$package"
     if test -f "$cachedir/$repo/$package/$vendor/$version.c"; then
-      indented "already configured"
+      indented "already configured, ready to build"
       stage_end
       continue
     fi
@@ -471,7 +520,7 @@ build() { (
   while read -r package repo vendor version; do
     stage_beg "$package"
     if test -f "$cachedir/$repo/$package/$vendor/$version.b"; then
-      indented "already built"
+      indented "already built, ready to install"
       stage_end
       continue
     fi
@@ -510,7 +559,7 @@ install() { (
   while read -r package repo vendor version; do
     stage_beg "$package"
     if test -f "$package_dir/$package"; then
-      indented "already installed"
+      indented "already installed, ready to use"
       stage_end
       continue
     fi
@@ -522,17 +571,17 @@ install() { (
         echo "$version"
         echo "$vendor"
         echo "$repo"
-      } > "$package_dir/$package"
+      } > "$cachedir/$repo/$package/$vendor/$version.i"
 
       perform() {
         current_dir="$(pwd)"
         cd "$cachedir/$repo/$package/$vendor/$version.d"
         cd "$(find . | grep -E 'JPW_DESTDIR$')"
         files="$(find . -type f | sed -E 's/^\.//')"
-        mkdir -p $(find . -type d | sed -E -e 's/^\.//' -e '/^\s*$/d')
+        mkdir -vp $(find . -type d | sed -E -e 's/^\.//' -e '/^\s*$/d')
         for file in $files; do
-          cp -f "./$file" "$file"
-          echo "$file" >> "$package_dir/$package"
+          cp -vf "./$file" "$file"
+          echo "$file" >> "$cachedir/$repo/$package/$vendor/$version.i"
         done
         cd "$current_dir"
         echo ''
@@ -540,15 +589,48 @@ install() { (
 
       if ! perform 2>&1 | sed -e "s/^/$(nchars ' ' $indent)/" -e '/^\s*$/d'; then
         release_lock
-        rm -f "$package_dir/$package"
+        rm -f "$cachedir/$repo/$package/$vendor/$version.i"
         error "failed to perform installation: mkdir -p <dirs> && cp -t / <files>"
       fi
+
+      cp -f "$cachedir/$repo/$package/$vendor/$version.i" "$package_dir/$package"
     )
     stage_end
   done < "$lockfile"
   stage_end
 
   if test "$(expr "$COMMAND" : i)" -eq 1; then
+    release_lock
+  fi
+); }
+
+uninstall() { (
+  require_permission
+  acquire_lock
+
+  if test $# -gt 0; then
+    stage_beg "resolving dependencies"
+    indented "TODO"
+    stage_end
+
+    stage_beg "uninstalling packages"
+    for package in "$@"; do
+      stage_beg "$package"
+      if ! test -f "$package_dir/$package"; then
+        indented "not installed, skipping"
+        continue
+      fi
+      for file in $(tail -n +5 "$package_dir/$package"); do
+        rm -vf "$rootdir/$file" | sed -e "s/^/$(nchars ' ' $indent)/" -e '/^\s*$/d'
+      done
+      rm -vf "$package_dir/$package" | sed -e "s/^/$(nchars ' ' $indent)/" -e '/^\s*$/d'
+      stage_end
+    done
+
+    stage_end
+  fi
+
+  if test "$(expr "$COMMAND" : u)" -eq 1; then
     release_lock
   fi
 ); }
