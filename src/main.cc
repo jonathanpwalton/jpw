@@ -413,7 +413,6 @@ void cmd::install() {
     string name;
     Recipe const & recipe;
     std::stringstream source;
-    bool built = false;
 
     Target(string name, Recipe const & recipe) : name(name), recipe(recipe), source() {}
   };
@@ -447,6 +446,9 @@ void cmd::install() {
   io::warn("TODO: request user permission to proceed");
   io::stage();
 
+  if (targets.empty())
+    return;
+
   io::stage("retrieving package sources");
   for (auto & targetChain : targets) {
     for (auto & target : targetChain) {
@@ -459,14 +461,23 @@ void cmd::install() {
       if (!req.perform()) {
         io::erase_previous_line();
         io::warn("failed to retrieve source for package `" + target.name + "`");
-        continue;
+        break;
       } else if (target.recipe.source.sha256 != sha256sum(target.source.str().data(), target.source.str().length())) {
         io::warn("skipping package `" + target.name + "` due to source checksum mismatch");
-        continue;
+        break;
       }
     }
   }
   io::stage();
+
+  struct PackageEntry {
+    string name, vendor, version;
+    vector<fs::path> files;
+  };
+
+  unordered_set<fs::path> directoriesToCreate;
+  unordered_map<fs::path, fs::path> filesToRename;
+  vector<PackageEntry> packageEntries;
 
   fs::remove_all(env::temp);
   io::stage("building packages");
@@ -508,18 +519,20 @@ void cmd::install() {
 
       fs::current_path("./JPW_DESTDIR");
 
-      std::ofstream meta(env::pkgs / target.name);
-      meta << target.recipe.vendor << "\n" << target.recipe.version << "\n";
+      auto & entry = packageEntries.emplace_back();
+      entry.name = target.name;
+      entry.vendor = target.recipe.vendor;
+      entry.version = target.recipe.version;
 
       for (auto & f : fs::recursive_directory_iterator(fs::current_path())) {
         auto src = f.path();
         auto dst = fs::relative(src, fs::current_path());
 
         if (f.is_directory()) {
-          fs::create_directories(env::root / dst);
+          directoriesToCreate.insert(env::root / dst);
         } else if (f.is_regular_file()) {
-          fs::copy(src, env::root / dst, fs::copy_options::overwrite_existing);
-          meta << dst.string() << "\n";
+          filesToRename[src] = env::root / dst;
+          entry.files.push_back(dst);
         } else {
           io::warn("refusing to copy " + src.string() + " as it is not a regular file");
         }
@@ -528,6 +541,27 @@ void cmd::install() {
       fs::current_path(cwd);
       io::stage();
     }
+  }
+  io::stage();
+
+  io::stage("installing package files");
+  for (auto const & dir : directoriesToCreate)
+    fs::create_directories(dir);
+
+  for (auto && [src, dst] : filesToRename)
+    fs::rename(src, dst);
+
+  for (auto const & entry : packageEntries) {
+    io::stage(entry.name);
+    fs::create_directories(env::pkgs / entry.name);
+    std::ofstream meta(env::pkgs / entry.name / "meta");
+    std::ofstream files(env::pkgs / entry.name / "files");
+
+    meta << entry.name << '\n' << entry.vendor << '\n' << entry.version << '\n';
+
+    for (auto const & file : entry.files)
+      files << file.string() << '\n';
+    io::stage();
   }
   io::stage();
 }
